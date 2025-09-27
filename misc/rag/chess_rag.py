@@ -1,3 +1,5 @@
+# chess_rag.py
+
 import os, json, weaviate
 from weaviate.classes.init import Auth
 from dotenv import load_dotenv

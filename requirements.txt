@@ -1,10 +1,22 @@
+# Core dependencies
 websockets==14.2
 chess==1.11.1
 stockfish==3.28.0
-numpy>=1.26.0
 zstandard==0.23.0
 torch==2.6.0
-weaviate-client
 requests
-openai
 fastmcp
+python-dotenv>=1.0.0
+
+# OpenAI & Weaviate
+openai>=1.50.0
+weaviate-client>=4.8.0
+openai-agents
+
+# Data science stack
+numpy>=1.26.0
+pandas>=2.0.0
+
+# Development and testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0

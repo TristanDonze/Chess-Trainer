@@ -14,8 +14,7 @@ openai_client = OpenAI(api_key=OPENAI_API_KEY)
 url = " http://127.0.0.1:8000/mcp"
 
 user_query = (
-    "Je joue les blancs dans une Sicilienne. "
-    "Donne moi deux plans thématiques et cite des éléments de ta base s’ils existent."
+    "I am playing White in a Sicilian. Give me two thematic plans and cite elements from your database if they exist."
 )
 
 result = openai_client.responses.create(
