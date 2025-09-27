@@ -1,1 +1,8 @@
+websockets==14.2
+chess==1.11.1
+stockfish==3.28.0
+numpy>=1.26.0
+zstandard==0.23.0
+torch==2.6.0
 weaviate-client
+

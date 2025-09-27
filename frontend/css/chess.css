@@ -1,0 +1,122 @@
+
+main {
+    display: flex;
+    justify-content: space-between;
+}
+
+main .evaluator-wrapper .evaluator-block > progress {
+    display: none;
+}
+
+main:has( div[game-started="false"]) .right-panel,
+main:has( div[game-started="false"]) .main-panel {
+    display: none;
+}
+
+.left-panel {
+    width: 15vw;
+}
+
+.right-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: calc((100vw - 90svh) - 60px - 15vw);
+    margin: 30px;
+}
+
+.main-panel {
+    margin-top: 2svh;
+}
+
+.player-side {
+    height: 4svh;
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 10px 0 40px;
+}
+
+.board-container {
+    height: fit-content;
+    width: fit-content;
+}
+
+#board {
+    width: 92svh;
+    height: 92svh;
+}
+
+.board-container #board rect.highlight {
+    stroke-width: 4px;
+    stroke: #fff;
+}
+
+.board-container #board rect.moved[color="white"] { 
+    fill: #F6EA7B;
+    stroke: #F6EA7B;
+}
+.board-container #board rect.moved[color="black"] { 
+    fill: #DCC351;
+    stroke: #DCC351;
+}
+
+.board-container #board g#board-pieces > g {
+    cursor: pointer;
+}
+
+.form {
+    display: flex;
+    gap: 10px;
+    margin: 20px;
+    flex-direction: column;
+}
+
+.pop-up:has(.form) {
+    min-width: 40vw;
+}
+
+.form > div {
+    border: solid var(--accent-color);
+    padding: 10px;
+    border-radius: 2px;
+    display: flex;
+    gap: 10px;
+}
+
+.evaluator-wrapper {
+    display: flex;
+    flex-direction: row-reverse;
+    margin-right: 6px;
+}
+
+.evaluator-block {
+    width: 40px;
+    height: 90svh;
+}
+
+progress.evaluator {
+    transform: rotateZ(90deg);
+    height: 40px;
+    width: 90svh;
+    position: relative;
+    border-radius: 0;
+    bottom: -45svh;
+    outline: solid 2px var(--background-color);
+}
+
+progress.evaluator#ev1 { left: calc(-45svh + 20px);}
+progress.evaluator#ev2 { left: calc(-45svh + 20px - 5px);}
+
+progress.evaluator::-webkit-progress-bar {
+    background-color: #f1f1f1;
+    height: 40px;
+    width: 90svh;
+}
+
+progress.evaluator::-webkit-progress-value {
+    background-color: #4d4d4d;
+    height: 40px;
+    width: 90svh;
+}
