@@ -8,7 +8,8 @@ const game_state = {
     checkmate: null,
     draw: null,
     white_player: null,
-    black_player: null
+    black_player: null,
+    full_fen: null
 }
 
 var saved_possible_moves = {
@@ -18,6 +19,7 @@ var saved_possible_moves = {
 function update_game_state(full_fen) {
     // ex: rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQ kq (3, 2) 0 1
     let [fen, turn, castling, en_passant, halfmove_clock, fullmove_number] = full_fen.split(" ");
+    game_state.full_fen = full_fen;
     game_state.turn = turn;
     game_state.en_passant = en_passant;
     game_state.halfmove_clock = halfmove_clock;
@@ -33,6 +35,8 @@ function update_game_state(full_fen) {
 }
 
 async function draw_game(board_fen) {
+    game_state.full_fen = board_fen;
+
     board = d3.select("svg#board");
     if (board.empty()) {
         d3.select(".board-container").append("svg").attr("id", "board");
@@ -59,8 +63,25 @@ async function draw_game(board_fen) {
 
     board_boxes = board.append("g").attr("id", "board-boxes");
     possible_move_draw = board.append("g").attr("id", "possible-moves");
+    board.append("g").attr("id", "advice-layer");
     board_pieces = board.append("g").attr("id", "board-pieces");
     board_labels = board.append("g").attr("id", "board-labels");
+
+    let defs = board.select("defs#advice-defs");
+    if (defs.empty()) {
+        defs = board.append("defs").attr("id", "advice-defs");
+        defs.append("marker")
+            .attr("id", "advice-arrow-head")
+            .attr("viewBox", "0 0 10 10")
+            .attr("refX", 8)
+            .attr("refY", 5)
+            .attr("markerWidth", 6)
+            .attr("markerHeight", 6)
+            .attr("orient", "auto-start-reverse")
+            .append("path")
+            .attr("d", "M 0 0 L 10 5 L 0 10 z")
+            .attr("fill", "var(--accent-color, #4c6ef5)");
+    }
 
     board_boxes.attr("width", board_size).attr("height", board_size);
     board_pieces.attr("width", board_size).attr("height", board_size);
@@ -119,7 +140,67 @@ async function draw_game(board_fen) {
     // draw_piece("N", "B1");
     // draw_piece("b", "C3");
     draw_from_fen(board_fen);
+    clear_advice_move();
 }
+
+function get_current_fen() {
+    return game_state.full_fen;
+}
+
+function clear_advice_move() {
+    const board = d3.select("svg#board");
+    if (board.empty()) return;
+    board.select("g#advice-layer").selectAll("*").remove();
+    board.selectAll("rect.advice-highlight").classed("advice-highlight", false);
+}
+
+function show_advice_move(move) {
+    if (!move || !move.from || !move.to) return;
+
+    const board = d3.select("svg#board");
+    if (board.empty()) return;
+
+    const adviceLayer = board.select("g#advice-layer");
+    if (adviceLayer.empty()) return;
+
+    clear_advice_move();
+
+    const squareSize = parseFloat(board.attr("square-size"));
+    const fromRect = board.select(`#${move.from}`);
+    const toRect = board.select(`#${move.to}`);
+
+    if (fromRect.empty() || toRect.empty()) return;
+
+    const fromX = parseFloat(fromRect.attr("x")) + squareSize / 2;
+    const fromY = parseFloat(fromRect.attr("y")) + squareSize / 2;
+    const toX = parseFloat(toRect.attr("x")) + squareSize / 2;
+    const toY = parseFloat(toRect.attr("y")) + squareSize / 2;
+
+    adviceLayer.append("line")
+        .attr("x1", fromX)
+        .attr("y1", fromY)
+        .attr("x2", toX)
+        .attr("y2", toY)
+        .attr("stroke", "var(--accent-color, #4c6ef5)")
+        .attr("stroke-width", Math.max(4, squareSize * 0.15))
+        .attr("stroke-linecap", "round")
+        .attr("marker-end", "url(#advice-arrow-head)");
+
+    adviceLayer.append("circle")
+        .attr("cx", fromX)
+        .attr("cy", fromY)
+        .attr("r", Math.max(6, squareSize * 0.18))
+        .attr("fill", "var(--accent-color, #4c6ef5)")
+        .attr("fill-opacity", 0.25)
+        .attr("stroke", "var(--accent-color, #4c6ef5)")
+        .attr("stroke-width", 2);
+
+    fromRect.classed("advice-highlight", true);
+    toRect.classed("advice-highlight", true);
+}
+
+window.clear_advice_move = clear_advice_move;
+window.show_advice_move = show_advice_move;
 
 function draw_from_fen(fen) {
     board = d3.select("svg#board");

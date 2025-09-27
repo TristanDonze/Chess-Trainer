@@ -36,6 +36,11 @@ function read_message(event) {
             game_state.turn = game_state.turn === "w" ? "b" : "w";
             read_ai_move(message_data.data.content);
             break;
+        case "theory-answer":
+            if (typeof read_theory_answer === 'function') {
+                read_theory_answer(message_data.data.content);
+            }
+            break;
         default:
             return message_data
     }

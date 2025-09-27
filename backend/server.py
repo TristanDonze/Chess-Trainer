@@ -10,6 +10,7 @@ from meta import AVAILABLE_MODELS
 from src.chess.game import Game
 from src.chess.player import Player
 from models.engine import Engine
+from src.rag import THEORY_ASSISTANT, RagServiceError
 
 import traceback
 import asyncio
@@ -133,6 +134,13 @@ class Server:
             ServerSocket.EVENTS_TYPES.on_message,
             "analyze-game",
             lambda client, message: self.analyse_game(client, message.content) if message.type == "analyze-game" else None
+        )
+
+        self.socket.on(
+            ServerSocket.EVENTS_TYPES.on_message,
+            "theory-question",
+            lambda client, message: asyncio.create_task(self.handle_theory_question(client, message.content))
+            if message.type == "theory-question" else None
         )
     
     async def start_game(self, info):
@@ -351,6 +359,43 @@ class Server:
         }
         asyncio.create_task(self.socket.broadcast(protocol.Message(ctn, "game-analyzed").to_json()))
 
+    async def handle_theory_question(self, client, info):
+        """Answer a theory question using the OpenAI assistant."""
+        info = info or {}
+        question = (info.get("question") or "").strip()
+        request_id = info.get("request_id")
+        fen = info.get("fen") or None
+
+        if not question:
+            payload = {
+                "id": request_id,
+                "error": "Question cannot be empty."
+            }
+            await self.socket.send(client, protocol.Message(payload, "theory-answer"))
+            return
+
+        try:
+            answer = THEORY_ASSISTANT.answer(question=question, fen=fen, request_id=request_id)
+            payload = {
+                **answer,
+                "fen": fen,
+            }
+        except RagServiceError as exc:
+            payload = {
+                "id": request_id,
+                "error": str(exc),
+                "fen": fen,
+            }
+        except Exception as exc:
+            traceback.print_exc()
+            payload = {
+                "id": request_id,
+                "error": f"Unexpected error: {exc}",
+                "fen": fen,
+            }
+
+        await self.socket.send(client, protocol.Message(payload, "theory-answer"))
+
     def connect_user(self, info):
         """
         Connect a user with the given pseudo.
@@ -368,4 +413,3 @@ class Server:
 if __name__ == "__main__":
     Server = Server()
     asyncio.run(Server.run())
-
