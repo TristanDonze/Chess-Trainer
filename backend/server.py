@@ -364,7 +364,7 @@ class Server:
         info = info or {}
         question = (info.get("question") or "").strip()
         request_id = info.get("request_id")
-        fen = info.get("fen") or None
+        fen = self.focused_game.fen() if self.focused_game is not None else "N/A - just theory question"
 
         if not question:
             payload = {

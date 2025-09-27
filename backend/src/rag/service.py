@@ -125,8 +125,16 @@ class TheoryAssistant:
             "You are a chess coach. Combine the current board state and retrieved knowledge "
             "to provide practical, trustworthy advice. Always verify tactical claims, "
             "mention critical variations in algebraic notation, and cite any referenced sources."
-            " If a board position (FEN) is supplied, always include an explicit move recommendation in UCI notation"
-            " on a dedicated line formatted exactly as 'Recommended move (UCI): e2e4'."
+            "If no position is given, focus on theory advice, you can use move recommandation or showcase (or both) to make it more lisible."
+            "If a board position (FEN) is supplied, include an explicit move recommendation in UCI notation"
+            "on a dedicated line formatted exactly as:"
+            "'Recommended move (UCI): <move_uci>'."
+            "To showcase a position (like for an example, with fen notation) use exactly the following format:"
+            "'Suggested position (FEN): <fen>'."
+            "Even if the user doesn't ask for showcase or move, you can still provide them if relevant. (it can really help the user to understand). Though, never propose to showcase, do it directly."
+            "If you give showcase FEN or move recommandation, directly add them at the end of your answer without context (they will be parsed)."
+            "Always answer in English."
+
         )
 
         context_lines: List[str] = []
@@ -196,8 +204,17 @@ class TheoryAssistant:
                     }
                 )
         recommended_move: Optional[Dict[str, Any]] = None
-        if fen:
-            recommended_move = self._extract_recommended_move(output_text, fen)
+        recommended_move = self._extract_recommended_move(output_text, fen)
+
+        if not recommended_move:
+            recommended_move = {"uci": "N/A", "san": "N/A", "from": "N/A", "to": "N/A", "promotion": "N/A"}
+
+        showcase_position: Optional[str] = None
+        fen_match = re.search(r"Suggested position \(FEN\):\s*([^\s]+)", output_text)
+        if fen_match:
+            showcase_position = fen_match.group(1).strip()
+        if showcase_position:
+            recommended_move["showcase_fen"] = showcase_position
 
         return {
             "id": request_id,
@@ -253,6 +270,7 @@ class TheoryAssistant:
             if move in board.legal_moves:
                 return candidate
         return None
+
 
     @staticmethod
     def _find_san_move(text: str, board: chess.Board) -> Optional[chess.Move]:

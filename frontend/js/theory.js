@@ -188,6 +188,9 @@
             });
             if (payload.recommended_move && typeof show_advice_move === 'function') {
                 try {
+                    if (payload.recommended_move.showcase_fen)
+                        draw_from_fen(payload.recommended_move.showcase_fen);
+
                     show_advice_move(payload.recommended_move);
                 } catch (err) {
                     console.warn('Unable to display advice move', err);
