@@ -5,4 +5,4 @@ numpy>=1.26.0
 zstandard==0.23.0
 torch==2.6.0
 weaviate-client
-
+requests
