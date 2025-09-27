@@ -6,212 +6,28 @@
     
     <link rel="stylesheet" href="css/global.css">
     <link rel="stylesheet" href="css/chess.css">
+    <link rel="stylesheet" href="css/home-page.css">
+
 
     <script src="js/toolbox/toolbox.bundle.js"></script>
     <script src="js/message.js"></script>
     <script src="js/interface.js"></script>
     <script src="js/d3.v7.min.js"></script>
-    <script src="js/chess_func.js"></script>
 
     <link rel="preload" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&" as="style" onload="this.onload=null;this.rel='stylesheet'">
 
 </head>
 <body>
     <main>
-        <div class="left-panel">
-            <button id="start-game" class="material-symbols-outlined btn" title="play" onclick="start_game(this)">chess</button>
+        <div class="avatar-wrapper">
+
         </div>
-
-        <div class="evaluator-wrapper">
-            <div class="evaluator-block">
-                <progress class="evaluator" id="ev1" value="50" max="100" model="none"></progress>
+        <nav>
+            <div class="not-connected">
+                <a href="html/home.html" class="nav-link">connect</a>
+                <a href="#" class="nav-link">register</a>
             </div>
-            <div class="evaluator-block">
-                <progress class="evaluator" id="ev2" value="50" max="100" model="none"></progress>
-            </div>
-        </div>
-
-        <div class="main-panel" game-started="false">
-            <div class="player-side">
-                <div class="player-info">
-                    <span class="black-player"></span>
-                </div>
-                
-                <span class="timer">10:00</span>
-            </div>
-
-            <div class="board-container">
-                <!-- chess board -->
-            </div>
-            <div class="player-side">
-                <div class="player-info">
-                    <span class="white-player"></span>
-                </div>
-
-                <span class="timer">10:00</span>
-            </div>
-        </div>
-
-        <div class="right-panel">
-            <div class="game-info">
-                <div class="possible-castling">
-                    <span class="title">Possible castling</span>
-                    <div class="castling-block">
-                        <div class="castling-white">
-                            <span class="title">White:</span>
-                            <div class="castling-moves"></div>
-                        </div>
-                        <div class="castling-black">
-                            <span class="title">Black:</span>
-                            <div class="castling-moves"></div>
-                        </div>
-                    </div>
-                </div>
-                <div class="possible-en-passant">
-                    <span>Possible en passant:</span>
-                    <span class="en-passant"></span>
-                </div>
-            </div>
-
-            <div class="game-history">
-                <span class="title">Game history</span>
-                <div class="history"></div>
-            </div>
-        </div>
+        </nav>
     </main>
-
-    <script>
-        let game_started = false
-
-        function start_game() {
-            ctn = `
-                <span class="title">Start a game</span>
-                <div class="create-player">
-                    <input class="form-input" type="text" id="player-name" placeholder="New player name">
-                    <button onclick="create_player()" class="btn">Create player</button>
-                </div>
-
-                <hr/>
-
-                <div class="form">
-                    <div class="group">
-                        <label for="game-mode">Game mode</label>
-                        <select class="form-input" id="game-mode" onchange="game_mode_change()">
-                            <option value="PvP" selected>Player vs Player</option>
-                            <option value="PvAI" >Player vs AI</option>
-                            <option value="AIvAI">AI vs AI</option>
-                        </select>
-                    </div>
-                    
-                    <div class="ai-selection-block" style="display: none;">
-                        <div class="group">
-                            <label for="ai-selection">AI selection</label>
-                            <select id="ai-selection" class="form-input">
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="player-selection-block" style="display: none;">
-                        <div class="group">
-                            <label for="player-selection">Player selection</label>
-                            <select id="player-selection" class="form-input">
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="pvp-selection-block">
-                        <div class="group">
-                            <label for="player-color">Player 1</label>
-                            <select id="player1-selection" class="form-input">
-                            </select>
-                        </div>
-
-                        <div class="group">
-                            <label for="player-color">Player 2</label>
-                            <select id="player2-selection" class="form-input">
-                            </select>
-                        </div>
-                    </div>
-
-
-                    <div class="ai-vs-ai-block" style="display: none;">
-                        <div class="group">
-                            <label for="ai1-selection">AI 1 selection</label>
-                            <select id="ai1-selection" class="form-input">
-                            </select>
-                        </div>
-
-                        <div class="group">
-                            <label for="ai2-selection">AI 2 selection</label>
-                            <select id="ai2-selection" class="form-input">
-                            </select>
-                        </div>
-                    </div>
-
-                    <div class="group">
-                        <label for="player-color">Player 1 color</label>
-                        <select id="player-color" class="form-input">
-                            <option value="w">White</option>
-                            <option value="b">Black</option>
-                        </select>
-                    </div>
-                </form>
-            `
-
-            pop_up = PopUp.confirm(ctn, {on_yes: start_game_confirm}).open()
-        }
-
-        function start_game_confirm() {
-            game_mode = d3.select("#game-mode").node().value;
-            player_color = d3.select("#player-color").node().value;
-            
-            if (game_mode == "PvAI") {
-                ai_selection = d3.select("#ai-selection").node().value;
-                player = d3.select("#player-selection").node().value;
-                game_state.white_player = player_color == 'w' ? player : ai_selection
-                game_state.black_player = player_color == 'b' ? player : ai_selection
-                send_message("start-game", {game_mode: game_mode, player_color: player_color, ai_selection: ai_selection, player: player}, true, "Starting game...");
-            } else if (game_mode == "AIvAI") {
-                ai1_selection = d3.select("#ai1-selection").node().value;
-                ai2_selection = d3.select("#ai2-selection").node().value;
-                game_state.white_player = player_color == "w" ? ai1_selection : ai2_selection
-                game_state.black_player = player_color == "b" ? ai1_selection : ai2_selection
-                send_message("start-game", {game_mode: game_mode, player_color: player_color, ai1_selection: ai1_selection, ai2_selection: ai2_selection}, true, "Starting game...");
-            } else {
-                player1 = d3.select("#player1-selection").node().value;
-                player2 = d3.select("#player2-selection").node().value;
-                game_state.white_player = player_color == "w" ? player1 : player2
-                game_state.black_player = player_color == "b" ? player1 : player2
-                send_message("start-game", {game_mode: game_mode, player_color: player_color, player1: player1, player2: player2}, true, "Starting game...");
-            }
-
-            d3.select("div.main-panel").attr("game-started", "true");
-            game_started = true;
-        }
-
-        function game_mode_change() {
-            game_mode = d3.select("#game-mode").node().value;
-            if (game_mode == "PvAI") {
-                d3.select(".ai-selection-block").style("display", "flex");
-                d3.select(".player-selection-block").style("display", "flex");
-            } else {
-                d3.select(".ai-selection-block").style("display", "none");
-                d3.select(".player-selection-block").style("display", "none");
-            }
-
-            if (game_mode == "AIvAI") {
-                d3.select(".ai-vs-ai-block").style("display", "flex");
-            } else {
-                d3.select(".ai-vs-ai-block").style("display", "none");
-            }
-
-            if (game_mode == "PvP") {
-                d3.select(".pvp-selection-block").style("display", "flex");
-            } else {
-                d3.select(".pvp-selection-block").style("display", "none");
-            }
-        }
-    </script>
 </body>
-
 </html>

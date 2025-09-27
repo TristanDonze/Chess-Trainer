@@ -9,10 +9,10 @@
     <link rel="stylesheet" href="../css/profil-page.css">
 
 
-    <script src="js/toolbox/toolbox.bundle.js"></script>
-    <script src="js/message.js"></script>
-    <script src="js/interface.js"></script>
-    <script src="js/d3.v7.min.js"></script>
+    <script src="../js/toolbox/toolbox.bundle.js"></script>
+    <script src="../js/message.js"></script>
+    <script src="../js/interface.js"></script>
+    <script src="../js/d3.v7.min.js"></script>
 
     <link rel="preload" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&" as="style" onload="this.onload=null;this.rel='stylesheet'">
 
@@ -29,10 +29,13 @@
         <div class="profil-wrapper">
             <h1>Profil Page</h1>
 
+            <div class="profil-main-info">
+            </div>
+
             <div class="game-history-wrapper">
                 <div class="game-history-header">
                     <h2>Game History</h2>
-                    <button class="material-symbols-outlined" title="refresh" onclick="">refresh</button>
+                    <button class="material-symbols-outlined" title="refresh" onclick="load_profil()">refresh</button>
                 </div>
                 <div class="game-history-content">
                     <!-- games -->
@@ -43,5 +46,187 @@
 
 
     </main>
+
+    <script>
+
+        document.addEventListener("DOMContentLoaded", async function() {
+            await wait_for_socket_ready()
+            load_profil();
+        });
+
+        function load_profil() {
+            send_message("get-chesscom-profil", {"username": "EnzoPinchon"}, true, "Loading profil...");
+
+            wait_for_message("chesscom-profil", timeout=5000, only_content=true).then((data) => {
+                if (data === null) {
+                    Toast.error("Failed to load profil from Chess.com.");
+                    return; // Timeout: error will be return by the server
+                }
+                console.log("-->", data);
+                LoadingScreen.hide();
+
+                const main_info = document.querySelector(".profil-main-info");
+                main_info.innerHTML = ""
+                Object.keys(data.elo).forEach((key) => {
+                    const block = document.createElement("div");
+                    block.className = "info-block";
+
+                    const title = document.createElement("span");
+                    title.className = "title";
+                    title.textContent = key;
+
+                    const value = document.createElement("span");
+                    value.className = "value";
+                    value.textContent = data.elo[key];
+
+                    block.appendChild(title);
+                    block.appendChild(value);
+                    main_info.appendChild(block);
+                });
+
+                game_history = document.querySelector(".game-history-content");
+                game_history.innerHTML = "";
+                const fmtDateTime = (tsSec) => {
+                    if (!Number.isFinite(tsSec)) return '';
+                    const d = new Date(tsSec * 1000);
+                    return d.toLocaleString(undefined, {
+                        day: '2-digit', month: 'short', year: 'numeric',
+                        hour: '2-digit', minute: '2-digit'
+                    });
+                };
+
+                // Normalize a result string; reject castle-like tokens or garbage.
+                const normalizeResult = (rRaw) => {
+                    const r = (rRaw || '').trim();
+                    if (r === '1-0') return '1 - 0';
+                    if (r === '0-1') return '0 - 1';
+                    if (r === '0-0') return '0 - 0';
+                    // Explicitly treat "0-0" / "O-O" / "O–O" (castling) as NOT a result
+                    if (r === '0-0' || /^O[-–]O$/.test(r)) return '0 - 0';
+                    return ''; // unknown or missing
+                };
+
+                const winnerSide = (g) => {
+                    const nr = normalizeResult(g.result);
+                    if (nr === '1–0') return 'white';
+                    if (nr === '0–1') return 'black';
+                    if (nr === '0–0') return 'draw';
+                    // Fallback using side-level fields
+                    if (g.white?.result === 'win') return 'white';
+                    if (g.black?.result === 'win') return 'black';
+                    if (g.white?.result === 'agreed' && g.black?.result === 'agreed') return 'draw';
+                    return null;
+                };
+
+                const safe = (v, def = '') => (v == null ? def : String(v));
+
+                /**
+                 * Count moves from PGN:
+                 * - strips headers, comments, NAGs, move numbers, and result tokens
+                 * - counts SAN tokens (plies), then moves = ceil(plies/2)
+                 */
+                const countMovesFromPGN = (pgn) => {
+                    if (!pgn || typeof pgn !== 'string') return null;
+                    let t = pgn.replace(/\r/g, '');
+                    // remove headers [ ... ]
+                    t = t.replace(/^\s*\[.*?\]\s*$/gm, '');
+                    // remove comments { ... } and parentheses variations
+                    t = t.replace(/\{[^}]*\}/g, '').replace(/\([^)]*\)/g, '');
+                    // remove NAGs $n
+                    t = t.replace(/\$\d+/g, '');
+                    // remove move numbers like "12.", "12...", etc.
+                    t = t.replace(/\b\d+\.(\.\.)?/g, '');
+                    // split tokens
+                    const tokens = t
+                        .trim()
+                        .split(/\s+/)
+                        .filter(Boolean)
+                        // drop result tokens and stray markers
+                        .filter(tok => !/^(1-0|0-1|1\/2-1\/2|0-0)$/.test(tok))
+                        // drop checkmates/annotations suffixes are fine; keep SAN as a token
+                        ;
+                    // Heuristic: remaining tokens are plies (half-moves)
+                    const plies = tokens.length;
+                    if (!plies) return null;
+                    return Math.ceil(plies / 2);
+                };
+
+                const listFrag = document.createDocumentFragment();
+
+                data.games.forEach((game) => {
+                    const white = game.white || {};
+                    const black = game.black || {};
+
+                    const card = document.createElement('a');
+                    card.className = 'game-block';
+                    card.href = safe(game.url, '#');
+                    card.target = '_blank';
+                    card.rel = 'noopener';
+
+                    const win = winnerSide(game);
+                    const normRes = normalizeResult(game.result);
+                    const moves = countMovesFromPGN(game.pgn);
+
+                    // Left: score badge
+                    const score = document.createElement('div');
+                    score.className = 'score';
+                    score.textContent = normRes ||
+                        (win === 'white' ? '1 - 0' : win === 'black' ? '0 - 1' : win === 'draw' ? '0 - 0' : '0 - 0');
+
+                    // Middle: players
+                    const mid = document.createElement('div');
+                    mid.className = 'players';
+
+                    const mkRow = (side, who, isWinner) => {
+                        const row = document.createElement('div');
+                        row.className = `player ${side} ${isWinner ? 'winner' : (win === 'draw' ? 'draw' : 'loser')}`;
+
+                        const dot = document.createElement('span');
+                        dot.className = 'result-dot';
+
+                        const name = document.createElement('span');
+                        name.className = 'name';
+                        name.textContent = safe(who.username, '—');
+
+                        const rating = document.createElement('span');
+                        rating.className = 'rating';
+                        rating.textContent = `(${safe(who.rating, '—')})`;
+
+                        row.appendChild(dot);
+                        row.appendChild(name);
+                        row.appendChild(rating);
+                        return row;
+                    };
+
+                    mid.appendChild(mkRow('white', white, win === 'white'));
+                    mid.appendChild(mkRow('black', black, win === 'black'));
+
+                    // Right: meta (datetime + moves)
+                    const right = document.createElement('div');
+                    right.className = 'meta';
+
+                    const when = document.createElement('span');
+                    when.className = 'date';
+                    when.textContent = game.end_time ? fmtDateTime(game.end_time) : '';
+
+                    const mv = document.createElement('span');
+                    mv.className = 'moves';
+                    mv.textContent = (moves != null) ? `${moves} moves` : '';
+
+                    right.appendChild(when);
+                    if (mv.textContent) right.appendChild(mv);
+
+                    card.appendChild(score);
+                    card.appendChild(mid);
+                    card.appendChild(right);
+
+                    listFrag.appendChild(card);
+                });
+
+                game_history.appendChild(listFrag);
+
+            });
+        }
+    </script>
 </body>
 </html>

@@ -116,6 +116,12 @@ class Server:
             "evaluate-game",
             lambda client, message: self.evaluate_game(message.content) if message.type == "evaluate-game" else None
         )
+
+        self.socket.on(
+            ServerSocket.EVENTS_TYPES.on_message,
+            "get-chesscom-profil",
+            lambda client, message: self.get_chesscom_profil(message.content) if message.type == "get-chesscom-profil" else None
+        )
     
     async def start_game(self, info):
         """
@@ -254,7 +260,6 @@ class Server:
             self.focused_game.play_engine_move()
         asyncio.create_task(play())
 
- 
     def create_player(self, info):
         """
         Create a new player with the given name.
@@ -276,6 +281,24 @@ class Server:
         })
         json.dump(ranking, self.open_file("ranking", "w"), indent=4)
         asyncio.create_task(self.socket.broadcast(protocol.Message("Player created", "player-created").to_json()))
+
+    def get_chesscom_profil(self, info):
+        """
+        Get the profil of a chess.com user.
+        """
+        from src.utils.extract_chesscom import get_chesscom_data
+
+        try:
+            elo, games = get_chesscom_data(info["username"])
+            ctn = {
+                "elo": elo,
+                "nb_games": len(games),
+                "games": games
+            }
+            asyncio.create_task(self.socket.broadcast(protocol.Message(ctn, "chesscom-profil").to_json()))
+        except Exception as e:
+            asyncio.create_task(self.socket.broadcast(protocol.Message(str(e), "error").to_json()))
+            traceback.print_exc()
 
 if __name__ == "__main__":
     Server = Server()

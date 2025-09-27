@@ -118,8 +118,10 @@ async function wait_for_message(type, timeout = -1, only_content = false) {
                 if (timeout_id) clearTimeout(timeout_id);
                 socket.removeEventListener("message", check_message);
 
-                if (only_content && message.content) {
-                    resolve(message.content);
+                if (only_content && message.data && message.data.content) {
+                    resolve(message.data.content);
+                } else if (only_content && messsage.data) {
+                    resolve(message.data);
                 } else {
                     resolve(message);
                 }
