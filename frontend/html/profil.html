@@ -35,7 +35,7 @@
             <div class="game-history-wrapper">
                 <div class="game-history-header">
                     <h2>Game History</h2>
-                    <button class="material-symbols-outlined" title="refresh" onclick="load_profil()">refresh</button>
+                    <button class="material-symbols-outlined" title="refresh" onclick="load_profil(true)">refresh</button>
                 </div>
                 <div class="game-history-content">
                     <!-- games -->
@@ -51,11 +51,12 @@
 
         document.addEventListener("DOMContentLoaded", async function() {
             await wait_for_socket_ready()
-            load_profil();
+            load_profil(false);
         });
 
-        function load_profil() {
-            send_message("get-chesscom-profil", {"username": "EnzoPinchon"}, true, "Loading profil...");
+        function load_profil(refresh) {
+
+            send_message("get-chesscom-profil", {"refresh": refresh}, true, "Loading profil...");
 
             wait_for_message("chesscom-profil", timeout=5000, only_content=true).then((data) => {
                 if (data === null) {

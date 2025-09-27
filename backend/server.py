@@ -1,5 +1,8 @@
 
+import time
 from src.utils.socket_server import ServerSocket
+from src.utils.extract_chesscom import get_chesscom_data
+
 import src.utils.message as protocol
 
 from meta import AVAILABLE_MODELS
@@ -24,6 +27,8 @@ class Server:
 
     def __init__(self):
         self.socket = ServerSocket(_print=True)
+        self.client_pseudo = None
+        self.client_profil = None
 
         self.focused_game = None
 
@@ -69,11 +74,6 @@ class Server:
         """
         Set up the event listeners for the server.
         """
-        self.socket.on(
-            ServerSocket.EVENTS_TYPES.on_client_connect,
-            "client-connect",
-            lambda client: asyncio.create_task(self.socket.send(client, protocol.Message("Connection established", "confirm-connection").to_json()))
-        )
 
         self.socket.on(
             ServerSocket.EVENTS_TYPES.on_message,
@@ -95,27 +95,33 @@ class Server:
 
         self.socket.on(
             ServerSocket.EVENTS_TYPES.on_message,
-            "get-players-list",
-            lambda client, message: self.get_players_list() if message.type == "get-players-list" else None
+            "connect-user",
+            lambda client, message: self.connect_user(message.content) if message.type == "connect-user" else None
         )
 
-        self.socket.on(
-            ServerSocket.EVENTS_TYPES.on_message,
-            "create-player",
-            lambda client, message: self.create_player(message.content) if message.type == "create-player" else None
-        )
+        # self.socket.on(
+        #     ServerSocket.EVENTS_TYPES.on_message,
+        #     "get-players-list",
+        #     lambda client, message: self.get_players_list() if message.type == "get-players-list" else None
+        # )
 
-        self.socket.on(
-            ServerSocket.EVENTS_TYPES.on_message,
-            "get-evaluators-list",
-            lambda client, message: self.get_evaluators_list() if message.type == "get-evaluators-list" else None
-        )
+        # self.socket.on(
+        #     ServerSocket.EVENTS_TYPES.on_message,
+        #     "create-player",
+        #     lambda client, message: self.create_player(message.content) if message.type == "create-player" else None
+        # )
 
-        self.socket.on(
-            ServerSocket.EVENTS_TYPES.on_message,
-            "evaluate-game",
-            lambda client, message: self.evaluate_game(message.content) if message.type == "evaluate-game" else None
-        )
+        # self.socket.on(
+        #     ServerSocket.EVENTS_TYPES.on_message,
+        #     "get-evaluators-list",
+        #     lambda client, message: self.get_evaluators_list() if message.type == "get-evaluators-list" else None
+        # )
+
+        # self.socket.on(
+        #     ServerSocket.EVENTS_TYPES.on_message,
+        #     "evaluate-game",
+        #     lambda client, message: self.evaluate_game(message.content) if message.type == "evaluate-game" else None
+        # )
 
         self.socket.on(
             ServerSocket.EVENTS_TYPES.on_message,
@@ -155,38 +161,38 @@ class Server:
         await asyncio.sleep(0.8)
         self.focused_game.play_engine_move()
 
-    def get_evaluators_list(self):
-        """
-        Get all available evaluators.
-        """
+    # def get_evaluators_list(self):
+    #     """
+    #     Get all available evaluators.
+    #     """
         
-        # a model is an evaluator if it has a 'evaluate' method
-        evaluators = []
-        for name, model in AVAILABLE_MODELS.items():
-            if not hasattr(model, "evaluate"): continue
+    #     # a model is an evaluator if it has a 'evaluate' method
+    #     evaluators = []
+    #     for name, model in AVAILABLE_MODELS.items():
+    #         if not hasattr(model, "evaluate"): continue
 
-            evaluators.append({
-                "name": name,
-                "author": model.__author__,
-                "description": model.__description__
-            })
+    #         evaluators.append({
+    #             "name": name,
+    #             "author": model.__author__,
+    #             "description": model.__description__
+    #         })
 
-        asyncio.create_task(self.socket.broadcast(protocol.Message(evaluators, "evaluators-list").to_json()))
+    #     asyncio.create_task(self.socket.broadcast(protocol.Message(evaluators, "evaluators-list").to_json()))
 
-    def evaluate_game(self, info):
-        """return win probability for blacks"""
-        model_name = info["model"]
-        if model_name not in AVAILABLE_MODELS:
-            asyncio.create_task(self.socket.broadcast(protocol.Message(f"Model {model_name} not found",  "error").to_json()))
-            return
+    # def evaluate_game(self, info):
+    #     """return win probability for blacks"""
+    #     model_name = info["model"]
+    #     if model_name not in AVAILABLE_MODELS:
+    #         asyncio.create_task(self.socket.broadcast(protocol.Message(f"Model {model_name} not found",  "error").to_json()))
+    #         return
         
-        if self.focused_game is None:
-            asyncio.create_task(self.socket.broadcast(protocol.Message("No game started", "error").to_json()))
-            return
+    #     if self.focused_game is None:
+    #         asyncio.create_task(self.socket.broadcast(protocol.Message("No game started", "error").to_json()))
+    #         return
         
-        model = AVAILABLE_MODELS[model_name]()
-        outcome = int(model.evaluate(self.focused_game)[0] * 100)
-        asyncio.create_task(self.socket.broadcast(protocol.Message(outcome, "game-evaluated").to_json()))
+    #     model = AVAILABLE_MODELS[model_name]()
+    #     outcome = int(model.evaluate(self.focused_game)[0] * 100)
+    #     asyncio.create_task(self.socket.broadcast(protocol.Message(outcome, "game-evaluated").to_json()))
 
     def get_possible_moves(self, info):
         """
@@ -267,41 +273,27 @@ class Server:
             self.focused_game.play_engine_move()
         asyncio.create_task(play())
 
-    def create_player(self, info):
-        """
-        Create a new player with the given name.
-        """
-        ranking = json.load(self.open_file("ranking", "r"))
-        if len(info['name']) < 3:
-            asyncio.create_task(self.socket.broadcast(protocol.Message("Name too short", "error").to_json()))
-            return
-        
-        if info['name'] in [player["name"] for player in ranking if player["type"] == "player"]:
-            asyncio.create_task(self.socket.broadcast(protocol.Message("Player already exists", "error").to_json()))
-            return
-        
-        ranking.append({
-            "name": info['name'],
-            "type": "player",
-            "elo": 600,
-            "nb_games": 0
-        })
-        json.dump(ranking, self.open_file("ranking", "w"), indent=4)
-        asyncio.create_task(self.socket.broadcast(protocol.Message("Player created", "player-created").to_json()))
-
-    def get_chesscom_profil(self, info):
+    def get_chesscom_profil(self, info, _preloaded=True):
         """
         Get the profil of a chess.com user.
         """
-        from src.utils.extract_chesscom import get_chesscom_data
-
+        if _preloaded and self.client_pseudo is None:
+            asyncio.create_task(self.socket.broadcast(protocol.NavigationCommand(url="../index.html").to_json()))
+            return
+        
+        reload = info.get("refresh", False)
+        if _preloaded and self.client_profil is not None and not reload:
+            asyncio.create_task(self.socket.broadcast(protocol.Message(self.client_profil, "chesscom-profil").to_json()))
+            return
+        
         try:
-            elo, games = get_chesscom_data(info["username"])
+            elo, games = get_chesscom_data(self.client_pseudo)
             ctn = {
                 "elo": elo,
                 "nb_games": len(games),
                 "games": games
             }
+            self.client_profil = ctn
             asyncio.create_task(self.socket.broadcast(protocol.Message(ctn, "chesscom-profil").to_json()))
         except Exception as e:
             asyncio.create_task(self.socket.broadcast(protocol.Message(str(e), "error").to_json()))
@@ -347,6 +339,7 @@ class Server:
                     "black_checkmate": self.focused_game.checkmate == chess.BLACK,
                     "king_in_check": self.focused_game.king_in_check[chess.WHITE] or self.focused_game.king_in_check[chess.BLACK],
                     "draw": self.focused_game.draw,
+                    "piece": str(self.focused_game.get_piece(chess.square_name(move.to_square).upper())),
                     **evaluation
                 })
 
@@ -358,6 +351,19 @@ class Server:
         }
         asyncio.create_task(self.socket.broadcast(protocol.Message(ctn, "game-analyzed").to_json()))
 
+    def connect_user(self, info):
+        """
+        Connect a user with the given pseudo.
+        """
+        self.client_pseudo = info["pseudo"]
+        self.get_chesscom_profil({}, _preloaded=False)
+
+        if self.client_profil is None:
+            asyncio.create_task(self.socket.broadcast(protocol.Toast("error", "Error while connecting user").to_json()))
+            asyncio.create_task(self.socket.broadcast(protocol.LoadingCommand("hide").to_json()))
+            return
+            
+        asyncio.create_task(self.socket.broadcast(protocol.NavigationCommand(url="html/home.html").to_json()))
 
 if __name__ == "__main__":
     Server = Server()

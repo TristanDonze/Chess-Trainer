@@ -24,10 +24,42 @@
         </div>
         <nav>
             <div class="not-connected">
-                <a href="html/home.html" class="nav-link">connect</a>
+                <a href="#" class="nav-link" onclick="connect_user()">connect</a>
                 <a href="#" class="nav-link">register</a>
             </div>
         </nav>
     </main>
+
+<script>
+    function connect_user() {
+            //      new PopUp({
+            //     content: box,
+            //     buttons: [
+            //         { label: 'Cancel', class_name: 'no-button' },
+            //     ]
+            // }).open();
+
+        const box = document.createElement("div");
+        box.classList.add("connect-box");
+        box.innerHTML = `
+            <h2>Connect</h2>
+            <input type="text" id="pseudo" class="form-input" placeholder="Pseudo">
+        `;
+        new PopUp({
+            content: box,
+            buttons: [
+                { label: 'Cancel', class_name: 'no-button' },
+                { label: 'Connect', class_name: 'yes-button', on_click: () => {
+                    const pseudo = document.getElementById("pseudo").value;
+                    if (pseudo.length < 3) {
+                        Toast.error("Pseudo must be at least 3 characters long");
+                        return;
+                    }
+                    send_message("connect-user", {"pseudo": pseudo}, true, "Connecting...");
+                } }
+            ]
+        }).open();
+    }
+</script>
 </body>
 </html>

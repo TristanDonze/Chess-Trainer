@@ -12,13 +12,13 @@ function read_message(event) {
             read_popup_message(message_data.data.content);
             break;
         
-        case "error": message_data.data.content['type'] = 'server-error'
+        case "error": message_data.data['type'] = 'server-error'
         case "toast":
-            read_toast_message(message_data.data.content);
+            read_toast_message(message_data.data);
             break;
 
         case "navigation":
-            read_navigation_message(message_data.content);
+            read_navigation_message(message_data.data.content);
             break
 
         case "loading":
@@ -63,7 +63,7 @@ function read_toast_message(message) {
 }
 
 function read_navigation_message(message) {
-    const { mode, url, params, target } = message.content;
+    const { mode, url, params, target } = message;
 
     if (mode === "reload") {
         const currentUrl = new URL(window.location.href);
