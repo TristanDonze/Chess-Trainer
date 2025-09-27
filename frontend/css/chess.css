@@ -38,31 +38,26 @@ main:has( div[game-started="false"]) .main-panel {
     padding: 0 10px 0 40px;
 }
 
-.board-container {
-    height: fit-content;
-    width: fit-content;
-}
-
 #board {
     width: 92svh;
     height: 92svh;
 }
 
-.board-container #board rect.highlight {
+#board rect.highlight {
     stroke-width: 4px;
     stroke: #fff;
 }
 
-.board-container #board rect.moved[color="white"] { 
+#board rect.moved[color="white"] { 
     fill: #F6EA7B;
     stroke: #F6EA7B;
 }
-.board-container #board rect.moved[color="black"] { 
+#board rect.moved[color="black"] { 
     fill: #DCC351;
     stroke: #DCC351;
 }
 
-.board-container #board g#board-pieces > g {
+#board g#board-pieces > g {
     cursor: pointer;
 }
 

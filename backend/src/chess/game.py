@@ -72,7 +72,6 @@ class Game:
 
         self._update_game_state()
 
-    
     def reverse(self):
         """
         Return a new instance of Game with the exact reversed position.
@@ -151,7 +150,6 @@ class Game:
         self.winner = self.last_player
         return self
 
-       
     def load(self, data, format="fen"):
         """
         Load a game from a string.

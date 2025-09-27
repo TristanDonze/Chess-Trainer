@@ -13,6 +13,7 @@
     <script src="../js/message.js"></script>
     <script src="../js/interface.js"></script>
     <script src="../js/d3.v7.min.js"></script>
+    <script src="../js/chess_func.js"></script>
 
     <link rel="preload" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&" as="style" onload="this.onload=null;this.rel='stylesheet'">
 
@@ -26,6 +27,362 @@
             <a href="theory.html" class="nav-link material-symbols-outlined">book</a>
         </nav>
         Chess Page
+
+        <div class="page-wrapper">
+            <div class="chessboard-wrapper">
+                <div class="actions">
+                    <button class="material-symbols-outlined" title="Training game" onclick="start_training_game()">school</button>
+                    <button class="material-symbols-outlined" title="Game analysis" onclick="find_game_to_analyze()">analytics</button>
+                    <button class="material-symbols-outlined" title="Lecon with puzzles">lightbulb</button>
+                </div>
+                <svg id="board">
+                    <!-- chessboard svg -->
+                </svg>
+
+                <div class="game-tools">
+                    <button class="material-symbols-outlined" title="Previous move" onclick="previous_move()">skip_previous</button>
+                    <button class="material-symbols-outlined" title="Next move" onclick="next_move()">skip_next</button>
+                    <button class="material-symbols-outlined" title="Auto play" onclick="start_auto_play()">play_circle</button>
+                    <button class="material-symbols-outlined" title="Pause auto play" onclick="pause_auto_play()">pause_circle</button>
+                    <button class="material-symbols-outlined" title="Reset board" onclick="restart_game()">restart_alt</button>
+                </div>
+            </div>
+
+            <div class="interaction-wrapper">
+                <div class="avatar-wrapper"></div>
+                <div class="chatbox-wrapper">
+                    <div class="messages-wrapper">
+                        <!-- messages -->
+                    </div>
+                    <div class="actions-wrapper">
+                        <div class="send-message-wrapper">
+                            <input type="text" placeholder="Type your message...">
+                            <button class="send-button material-symbols-outlined">send</button>
+                        </div>
+                        
+                        <div class="switch-wrapper">
+                            <span class="switch-to-text material-symbols-outlined" title="Switch to text mode">keyboard</span>
+                            <span class="switch-to-audio material-symbols-outlined" title="Switch to audio mode">keyboard_voice</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
     </main>
+
+<script>
+    let games_to_analyze = [];
+    let current_game = null;
+    let current_move_idx = 0;
+    let current_turn = 'white';
+    let is_game_analysis = false;
+
+    function start_training_game() {
+        const svg = d3.select("#board");
+        svg.selectAll("*").remove();
+        svg.classed("active", true);
+        // draw_game("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        // update_game_state("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        // new Audio('../media/game-start.mp3').play();
+        send_message("start-game", {"player1": "EnzoPinchon", "player2": "Trainer"});
+    }
+
+    function find_game_to_analyze() {
+        send_message("get-chesscom-profil", {"username": "EnzoPinchon"}, true, "Loading profil...");
+
+        wait_for_message("chesscom-profil", timeout=5000, only_content=true).then((data) => {
+            if (data === null) {
+                Toast.error("Failed to load profil from Chess.com.");
+                return; // Timeout: error will be return by the server
+            }
+            console.log("-->", data);
+            LoadingScreen.hide();
+
+            const escapeHTML = (s) =>
+                String(s ?? '')
+                    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+
+            const fmtDateTime = (tsSec) => {
+                if (!Number.isFinite(tsSec)) return '';
+                const d = new Date(tsSec * 1000);
+                return d.toLocaleString(undefined, {
+                    day: '2-digit', month: 'short', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit'
+                });
+            };
+
+            // Normalize UI score; treat castling ("0-0"/"O-O") as not a result.
+            // UI convention: draw/unknown => "0 - 0".
+            const normalizeResultUI = (raw, win) => {
+                const r = (raw || '').trim();
+                if (r === '1-0') return '1 - 0';
+                if (r === '0-1') return '0 - 1';
+                if (r === '1/2-1/2' || r === '½-½') return '0 - 0';
+                if (r === '0-0' || /^O[-–]O$/.test(r)) return '0 - 0';
+                if (win === 'white') return '1 - 0';
+                if (win === 'black') return '0 - 1';
+                if (win === 'draw')  return '0 - 0';
+                return '0 - 0';
+            };
+
+            const winnerSide = (g) => {
+                const r = (g.result || '').trim();
+                if (r === '1-0') return 'white';
+                if (r === '0-1') return 'black';
+                if (r === '1/2-1/2' || r === '½-½') return 'draw';
+                if (g.white?.result === 'win') return 'white';
+                if (g.black?.result === 'win') return 'black';
+                if (g.white?.result === 'agreed' && g.black?.result === 'agreed') return 'draw';
+                return null;
+            };
+
+            // Counts moves from PGN (plies/2), ignoring headers/comments/NAGs/results.
+            const countMovesFromPGN = (pgn) => {
+                if (!pgn || typeof pgn !== 'string') return null;
+                let t = pgn.replace(/\r/g, '');
+                t = t.replace(/^\s*\[.*?\]\s*$/gm, '');        // headers
+                t = t.replace(/\{[^}]*\}/g, '').replace(/\([^)]*\)/g, ''); // comments/vars
+                t = t.replace(/\$\d+/g, '');                   // NAGs
+                t = t.replace(/\b\d+\.(\.\.)?/g, '');          // move numbers
+                const tokens = t.trim().split(/\s+/).filter(Boolean)
+                    .filter(tok => !/^(1-0|0-1|1\/2-1\/2|½-½|0-0|O-O|O–O)$/.test(tok));
+                const plies = tokens.length;
+                if (!plies) return null;
+                return Math.ceil(plies / 2);
+            };
+
+            games_to_analyze = data.games || [];
+
+            const gameHistoryHTML = (data.games || []).map((game, idx) => {
+                const white = game.white || {};
+                const black = game.black || {};
+                const win = winnerSide(game);
+                const scoreText = normalizeResultUI(game.result, win);
+                const moves = countMovesFromPGN(game.pgn);
+
+                const wClass = win === 'white' ? 'winner' : (win === 'draw' ? 'draw' : 'loser');
+                const bClass = win === 'black' ? 'winner' : (win === 'draw' ? 'draw' : 'loser');
+
+                return `
+                <a class="game-block" onclick='analyze_game(${idx})'>
+                <div class="score">${scoreText}</div>
+                <div class="players">
+                    <div class="player white ${wClass}">
+                    <span class="result-dot"></span>
+                    <span class="name">${escapeHTML(white.username ?? '—')}</span>
+                    <span class="rating">(${escapeHTML(white.rating ?? '—')})</span>
+                    </div>
+                    <div class="player black ${bClass}">
+                    <span class="result-dot"></span>
+                    <span class="name">${escapeHTML(black.username ?? '—')}</span>
+                    <span class="rating">(${escapeHTML(black.rating ?? '—')})</span>
+                    </div>
+                </div>
+                <div class="meta">
+                    <span class="date">${game.end_time ? escapeHTML(fmtDateTime(game.end_time)) : ''}</span>
+                    ${moves != null ? `<span class="moves">${moves} moves</span>` : ''}
+                </div>
+                </a>`.trim();
+            }).join('');
+
+
+            const box = document.createElement('div');
+            box.innerHTML = `
+                <h3>Choose a game to analyze</h3>
+
+                <div class="games-wrapper">
+                    ${gameHistoryHTML || '<i>No games found.</i>'}
+                </div>
+            `;
+
+            new PopUp({
+                content: box,
+                buttons: [
+                    { label: 'Cancel', class_name: 'no-button' },
+                ]
+            }).open();
+        });
+    }
+
+    function analyze_game(idx) {
+        if (idx < 0 || idx >= games_to_analyze.length) {
+            Toast.error("Invalid game index.");
+            return;
+        }
+        const game = games_to_analyze[idx];
+        d3.select(".pop-up-wrapper").remove();
+        console.log("Analyzing game:", game);
+
+        const svg = d3.select("#board");
+        svg.selectAll("*").remove();
+        svg.classed("active", true);
+        draw_game("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
+        new Audio('../media/game-start.mp3').play();
+        is_game_analysis = true;
+        send_message("analyze-game", {game: game}, true, "Loading game...");
+        wait_for_message("game-analyzed", timeout=50000, only_content=true).then((data) => {
+            if (data === null) {
+                Toast.error("Failed to load game for analysis.");
+                return; // Timeout: error will be return by the server
+            }
+            console.log("Game loaded:", data);
+            current_game = data;
+
+            // move_idx = 0;
+            // current_turn = 'white';
+            // draw_game(data.moves[current_turn][move_idx].fen);
+            // while (data.moves[current_turn]?.length > move_idx) {
+            //     console.log("Playing move:", data.moves[current_turn][move_idx]);
+            //     move_idx++;
+            //     current_turn = current_turn === 'white' ? 'black' : 'white';
+            // }
+            // move_idx--;
+            // current_turn = current_turn === 'white' ? 'black' : 'white';
+
+            // draw_game(data.moves[current_turn][move_idx].fen);
+        });
+    }
+
+    function next_move() {
+        if (!is_game_analysis || !current_game) return;
+        if (current_game.moves[current_turn]?.length > current_move_idx) {
+            console.log("Playing move:", current_game.moves[current_turn][current_move_idx]);
+
+            board = d3.select("#board");
+            board.selectAll("rect").classed("moved", false);
+
+            move_from_square = current_game.moves[current_turn][current_move_idx].from;
+            move_to_square = current_game.moves[current_turn][current_move_idx].to;
+            promote_to = current_game.moves[current_turn][current_move_idx].promote;
+            rect_from = board.select(`rect#${move_from_square}`)
+            rect_to = board.select(`rect#${move_to_square}`)
+
+            // check if to_square is occupied (to play capture sound)
+            piece_at_to = d3.select(`g#board-pieces g[pos="${move_to_square}"]`);
+            if (piece_at_to.size() > 0) {
+                new Audio('../media/capture.mp3').play();
+            } else {
+                // check if it's a castling
+                if (promote_to) {
+                    new Audio('../media/promotion.mp3').play();
+                } else if (Math.abs(move_from_square.charCodeAt(0) - move_to_square.charCodeAt(0)) === 2) {
+                    new Audio('../media/castle.mp3').play();
+                } else {
+                    new Audio('../media/move.mp3').play();
+                }
+            }
+
+            draw_from_fen(current_game.moves[current_turn][current_move_idx].fen);
+
+            if (current_game.moves[current_turn][current_move_idx].king_in_check) {
+                new Audio('../media/move-check.mp3').play();
+            }
+            console.log("Highlighting move from", move_from_square, "to", move_to_square);
+            console.log("->", rect_from, rect_to);
+
+            rect_from.classed("moved", true);
+            rect_to.classed("moved", true);
+            
+            // if last move, stroke kings
+            if (current_game.moves.white.length === current_move_idx + 1 && current_game.moves.black.length === current_move_idx + 1) {
+                new Audio('../media/game-end.mp3').play();
+                winning_side = current_game.moves[current_turn][current_move_idx].white_checkmate ? 'white' :
+                            current_game.moves[current_turn][current_move_idx].black_checkmate ? 'black' : null;
+                if (winning_side) {
+                    const loosing_king = d3.select(`g#board-pieces g[fen="${winning_side === "white" ? "k" : "K"}"]`);
+                    const winning_king = d3.select(`g#board-pieces g[fen="${winning_side === "white" ? "K" : "k"}"]`);
+                    const loosing_king_square = d3.select(`rect#${loosing_king.attr("pos")}`);
+                    const winning_king_square = d3.select(`rect#${winning_king.attr("pos")}`); 
+                    loosing_king_square.attr("stroke", "red").attr("stroke-width", 4);
+                    winning_king_square.attr("stroke", "green").attr("stroke-width", 4);
+                } else if (current_game.moves[current_turn][current_move_idx].draw) {
+                    // if draw, stroke both kings in yellow
+                    const white_king = d3.select(`g#board-pieces g[fen="K"]`);
+                    const black_king = d3.select(`g#board-pieces g[fen="k"]`);
+                    const white_king_square = d3.select(`rect#${white_king.attr("pos")}`);
+                    const black_king_square = d3.select(`rect#${black_king.attr("pos")}`); 
+                    white_king_square.attr("stroke", "orange").attr("stroke-width", 4);
+                    black_king_square.attr("stroke", "orange").attr("stroke-width", 4);
+                }
+            }
+
+            current_turn = current_turn === 'white' ? 'black' : 'white';
+            if (current_turn === 'white') {
+                current_move_idx++;
+            }
+        }
+    }
+
+    function previous_move() {
+        if (!is_game_analysis || !current_game) return;
+
+        const whites = current_game.moves?.white || [];
+        const blacks = current_game.moves?.black || [];
+
+        if (current_turn === 'white') {
+            const idx = current_move_idx - 1;
+            if (idx < 0 || !whites[idx]) {
+                start_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+                draw_from_fen(start_fen);
+                d3.select("#board").selectAll("rect").classed("moved", false);
+                current_turn = 'white';
+                current_move_idx = 0;
+                return;
+            }
+            const mv = whites[idx];
+            draw_from_fen(mv.fen);
+
+            const board = d3.select("#board");
+            board.selectAll("rect").classed("moved", false);
+            board.select(`rect#${mv.from}`).classed("moved", true);
+            board.select(`rect#${mv.to}`).classed("moved", true);
+
+            current_turn = 'black';
+            current_move_idx = idx; // k-1
+        } else { // current_turn === 'black'
+            const prevIdx = current_move_idx - 1;
+            if (prevIdx < 0 || !blacks[prevIdx]) {
+                start_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+                draw_from_fen(start_fen);
+                d3.select("#board").selectAll("rect").classed("moved", false);
+                current_turn = 'white';
+                current_move_idx = 0;
+                return;
+            }
+            const mv = blacks[prevIdx];
+            draw_from_fen(mv.fen);
+
+            const board = d3.select("#board");
+            board.selectAll("rect").classed("moved", false);
+            board.select(`rect#${mv.from}`).classed("moved", true);
+            board.select(`rect#${mv.to}`).classed("moved", true);
+
+            current_turn = 'white';
+            current_move_idx = prevIdx + 1; // redevient k
+        }
+    }
+
+    function restart_game() {
+        start_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
+        draw_from_fen(start_fen);
+        d3.select("#board").selectAll("rect").classed("moved", false);
+        current_turn = 'white';
+        current_move_idx = 0;
+    }
+
+    function start_auto_play() {
+        if (!is_game_analysis || !current_game) return;
+        auto_play_interval = setInterval(() => {
+            next_move();
+        }, 800);
+    }
+
+    function pause_auto_play() {
+        clearInterval(auto_play_interval);
+    }
+
+</script>
 </body>
 </html>

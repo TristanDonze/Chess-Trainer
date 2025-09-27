@@ -9,12 +9,12 @@ function read_message(event) {
             break
     
         case "pop-up":
-            read_popup_message(message_data.content);
+            read_popup_message(message_data.data.content);
             break;
         
-        case "error": message_data.content['type'] = 'server-error'
+        case "error": message_data.data.content['type'] = 'server-error'
         case "toast":
-            read_toast_message(message_data.content);
+            read_toast_message(message_data.data.content);
             break;
 
         case "navigation":
@@ -22,19 +22,19 @@ function read_message(event) {
             break
 
         case "loading":
-            read_loading_message(message_data.content);
+            read_loading_message(message_data.data.content);
             break;
 
         case "game-started":
-            read_game_started(message_data.content);
+            read_game_started(message_data.data.content);
             break;
         case "confirm-move":
             game_state.turn = game_state.turn === "w" ? "b" : "w";
-            read_confirm_move(message_data.content);
+            read_confirm_move(message_data.data.content);
             break;
         case "ai-move":
             game_state.turn = game_state.turn === "w" ? "b" : "w";
-            read_ai_move(message_data.content);
+            read_ai_move(message_data.data.content);
             break;
         default:
             return message_data
@@ -91,13 +91,12 @@ function read_navigation_message(message) {
 
 function read_loading_message(message) {
     // message.content should contain { action, main_steps, detail }
-
-    const action = message.content.action;
+    const action = message.action;
     if (action === "show") {
         LoadingScreen.show();
-        LoadingScreen.update(message.content);
+        LoadingScreen.update(message);
     } else if (action === "update") {
-        LoadingScreen.update(message.content);
+        LoadingScreen.update(message);
     } else if (action === "hide") {
         LoadingScreen.hide();
     }

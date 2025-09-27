@@ -122,6 +122,12 @@ class Server:
             "get-chesscom-profil",
             lambda client, message: self.get_chesscom_profil(message.content) if message.type == "get-chesscom-profil" else None
         )
+
+        self.socket.on(
+            ServerSocket.EVENTS_TYPES.on_message,
+            "analyze-game",
+            lambda client, message: self.analyse_game(client, message.content) if message.type == "analyze-game" else None
+        )
     
     async def start_game(self, info):
         """
@@ -129,9 +135,10 @@ class Server:
         """
         self.focused_game = Game()
         
-        self.focused_game.play(white=Player(info["player1"]), black=Player(info["player2"]))
         # self.focused_game.play(white=Player(info["player2"]), black=Player(info["player1"]))
-        # ai = AVAILABLE_MODELS[info["ai_selection"]]().setup()
+        ai = AVAILABLE_MODELS["Stockfish AI"](skill_level=20).setup() # skills level from 0 (weakest) to 20 (strongest)
+        self.focused_game.play(white=Player(info["player1"]), black=ai)
+
         # if info["player_color"] == "w":
         #     self.focused_game.play(white=Player(info["player"]), black=ai)
         # else:
@@ -299,6 +306,58 @@ class Server:
         except Exception as e:
             asyncio.create_task(self.socket.broadcast(protocol.Message(str(e), "error").to_json()))
             traceback.print_exc()
+
+    async def analyse_game(self, client, info):
+        """
+        Analyze a game with the given PGN.
+        """
+        # 1. load the PGN into a game object
+        self.focused_game = Game()
+        self.focused_game.load(info["game"]["pgn"], format="pgn")
+        
+        # 2. analyze the game with stockfish
+        if "Stockfish AI" not in AVAILABLE_MODELS:
+            asyncio.create_task(self.socket.broadcast(protocol.Message("Stockfish AI not available", "error").to_json()))
+            return
+        
+        stockfish = AVAILABLE_MODELS["Stockfish AI"]()
+        moves = {
+            "white": [], # [{"move": "e4", "evaluation": 0.23}, ...]
+            "black": []
+        }
+
+
+        self.focused_game.play(Player("White", False), Player("Black", False)) # to set the players (not IA)
+
+        async with protocol.LoadingScreen(self.socket, client) as screen:
+            await screen.init(["Analyze gamme"])
+            await screen.step("Analyze gamme", 0)
+
+            for idx, move in enumerate(self.focused_game.history):
+                self.focused_game.move(move)
+
+                evaluation = stockfish.evaluate(self.focused_game)
+                moves["white" if idx % 2 == 0 else "black"].append({
+                    "move": move.uci().upper(),
+                    "fen": self.focused_game.fen(),
+                    "from": chess.square_name(move.from_square).upper(),
+                    "to": chess.square_name(move.to_square).upper(),
+                    "promote": chess.piece_symbol(move.promotion).upper() if move.promotion else None,
+                    "white_checkmate": self.focused_game.checkmate == chess.WHITE,
+                    "black_checkmate": self.focused_game.checkmate == chess.BLACK,
+                    "king_in_check": self.focused_game.king_in_check[chess.WHITE] or self.focused_game.king_in_check[chess.BLACK],
+                    "draw": self.focused_game.draw,
+                    **evaluation
+                })
+
+                await screen.step("Analyze gamme", (idx + 1) / len(self.focused_game.history), info=f"Analyzing move {idx + 1}/{len(self.focused_game.history)}", eta_s=(len(self.focused_game.history) - idx) * 2)
+
+        ctn = {
+            "moves": moves,
+            "result": "white - " + info["game"]["white"]["result"] if info["game"]["white"]["result"] in ["win", "checkmated"] else "black - " + info["game"]["black"]["result"]
+        }
+        asyncio.create_task(self.socket.broadcast(protocol.Message(ctn, "game-analyzed").to_json()))
+
 
 if __name__ == "__main__":
     Server = Server()
