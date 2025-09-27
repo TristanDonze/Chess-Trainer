@@ -6,3 +6,5 @@ zstandard==0.23.0
 torch==2.6.0
 weaviate-client
 requests
+openai
+fastmcp
