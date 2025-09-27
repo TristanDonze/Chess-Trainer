@@ -47,11 +47,12 @@ const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const SERPAPI_KEY = process.env.SERPAPI_KEY;
 
 const MAX_DEPTH = Number(process.env.MAX_DEPTH || 1);          // crawl depth (reduced for Lightpanda)
-const MAX_PAGES = Number(process.env.MAX_PAGES || 5);          // global page budget (very reduced for stability)
+const MAX_PAGES = Number(process.env.MAX_PAGES || 20);         // increased for 1-hour runs
 const CONCURRENCY = Number(process.env.CONCURRENCY || 1);      // strict sequential for Lightpanda
-const REQUEST_DELAY_MS = 5000;                                 // much longer delay for Lightpanda
-const BROWSER_RETRY_DELAY_MS = 3000;                          // delay between connection retries
-const PAGE_TIMEOUT_MS = 30000;                                // shorter timeout for faster failure
+const REQUEST_DELAY_MS = 10000;                               // 10 seconds between pages for rate limits
+const OPENAI_DELAY_MS = 10000;                               // 10 seconds between OpenAI calls for rate limits
+const BROWSER_RETRY_DELAY_MS = 1000;                          // delay between connection retries
+const PAGE_TIMEOUT_MS = 10000;                                // shorter timeout for faster failure
 
 // Strong chess-keyword filters to reduce noise
 const CHESS_KEYWORDS = [
@@ -108,6 +109,15 @@ const validateContextConnection = async (context) => {
   }
 };
 
+const isBrowserAlive = async (browser) => {
+  try {
+    await browser.version();
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 const createBrowserConnection = async (maxRetries = 3) => {
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
@@ -116,7 +126,7 @@ const createBrowserConnection = async (maxRetries = 3) => {
         browserWSEndpoint: BROWSER_WS_ENDPOINT,
         defaultViewport: { width: 1440, height: 900 },
         ignoreHTTPSErrors: true,
-        protocolTimeout: 30000
+        protocolTimeout: 10000
       });
       
       const isValid = await validateBrowserConnection(browser);
@@ -219,15 +229,66 @@ if (!SERPAPI_KEY) {
 }
 
 const DISCOVERY_QUERIES = [
+
+  // Endgame / technique
+  'rook endgame technique triangulation opposition',
+  'king and pawn endgame theory classical guide',
+  'minor piece endgames bishop vs knight strategy',
+  'queen endgames principles and examples PGN',
+  'practical endgame strategies chess PDF',
+  'endgame theory fundamental positions database',
+
+  
+  // Middlegame / strategy
+  'chess middlegame strategy explained',
+  'middlegame planning in chess examples',
+  'positional concepts chess middlegame PDF',
+  'pawn structure imbalances in middlegame',
+  'maneuvering piece coordination in middlegame',
+  'strategic themes in chess middlegame',
+  'weak squares outposts and prophylaxis chess',
+
+  // Tactics / patterns
+  'chess tactics patterns list with examples PGN',
+  'common tactical motifs in chess explained',
+  'fork pin skewer discovered attack examples PGN',
+  'tactical theme catalog chess',
+  'combination puzzles motifs list',
+
+    // Opening / opening theory
   'site:chess.com opening theory guide',
   'site:lichess.org opening study',
   'site:en.wikipedia.org chess openings ECO',
-  'chess middlegame strategy explained',
-  'rook endgame technique triangulation opposition',
-  'chess tactics patterns list with examples PGN',
+  'chess opening theory advanced survey PDF',
+  'common opening traps explained PGN',
+  'novel opening ideas chess blog',
+  'opening repertoires for club players PDF',
+  'transposition in chess opening strategy',
+
+
+
+  // Game annotations / lessons / models
   'annotated chess games lessons PGN',
-  'universal chess principles rules beginners advanced'
+  'model games with commentary PGN',
+  'classic chess games annotated analysis',
+  'grandmaster game annotations instructive',
+  'chess master games commentary PDF',
+
+  // Universal / meta principles
+  'universal chess principles rules beginners advanced',
+  'chess heuristics strategy rules list',
+  'principles vs calculation in chess theory',
+  'how to think in chess strategy guide',
+  'philosophy of chess strategy and planning',
+  
+  // Hybrid / databases / references
+  'chess opening database with evaluation statistics',
+  'chess master theory repository PDF',
+  'survey of chess theory research article PDF',
+  'chess theory blog site:*.edu OR site:*.ac.jp',
+  'openings middlegame endgame unified guide'
 ];
+
 
 const serpDiscover = async (limitPerQuery = 8) => {
   console.log('🔍 Starting SERP discovery with', DISCOVERY_QUERIES.length, 'queries...');
@@ -255,7 +316,7 @@ const serpDiscover = async (limitPerQuery = 8) => {
     } catch (e) {
       console.warn(`  ❌ SERPAPI error on query "${q}":`, e?.message || e);
     }
-    await sleep(200);
+    await sleep(100);
   }
   console.log(`🎯 Discovery complete: ${urls.size} unique chess URLs found`);
   return Array.from(urls);
@@ -409,11 +470,34 @@ const extractionSchema = {
 };
 
 // ---------- OPENAI EXTRACTOR ----------
-const extractWithOpenAI = async ({ url, title, markdown, scrapedAt }) => {
-  console.log(`🧠 Extracting chess knowledge from "${title}" (${Math.round(markdown.length / 1024)}KB)`);
+const extractWithOpenAI = async ({ url, title, markdown, scrapedAt, existingContent = [] }) => {
+  const isUpdate = existingContent.length > 0;
+  console.log(`🧠 ${isUpdate ? 'Updating' : 'Extracting'} chess knowledge from "${title}" (${Math.round(markdown.length / 1024)}KB)`);
+  
+  if (isUpdate) {
+    console.log(`  📚 Found ${existingContent.length} existing files to enhance`);
+  }
+  
   // We'll use Chat Completions with structured outputs (json_schema, strict).
   // In strict mode, the model must return a JSON object matching the schema.
-  const sys = `
+  const sys = isUpdate ? `
+You are an **Intelligent Chess Content Enhancer**. 
+You are provided with EXISTING chess content files that were previously extracted, plus NEW page content from the same URL.
+Your task is to MERGE, ENHANCE, and IMPROVE the existing content with any new information from the page.
+
+INSTRUCTIONS:
+1. Review the existing content files and the new page content
+2. Merge information to create more comprehensive and accurate chess knowledge
+3. Add any new details, examples, variations, or insights from the new page
+4. Correct any errors or incomplete information in existing files
+5. Maintain the same high-quality structure and formatting
+6. If the new page has significantly different or better content, prioritize it
+7. Always output ALL categories (even if empty) to maintain schema compliance
+
+Prefer canonical names (e.g., "Ruy Lopez", "Sicilian Defense").
+Extract PGN/SAN lines when present. Preserve and enhance existing PGN/analysis.
+Avoid duplicates; dedupe items by name/title when possible.
+` : `
 You are an **Intelligent Chess Content Recognizer**. 
 Classify and extract **only chess knowledge** from the provided page content into the given JSON schema with 100% compliance.
 Prefer canonical names (e.g., "Ruy Lopez", "Sicilian Defense").
@@ -421,18 +505,38 @@ Extract PGN/SAN lines when present. Summarize lightly while preserving key ideas
 If a section does not exist on the page, return an empty array for it.
 Avoid duplicates; dedupe items by name/title when possible.
 `;
-  const user = `
+
+  let user = `
 SOURCE_URL: ${url}
 SOURCE_TITLE: ${title || '(no title)'}
 SCRAPED_AT: ${scrapedAt}
+`;
 
-PAGE_MARKDOWN:
+  if (isUpdate) {
+    user += `
+EXISTING_CONTENT_FILES:
+`;
+    for (const existing of existingContent) {
+      user += `
+--- ${existing.class.toUpperCase()}: ${existing.title} ---
+${existing.content}
+
+`;
+    }
+  }
+
+  user += `
+${isUpdate ? 'NEW_' : ''}PAGE_MARKDOWN:
 ---
-${markdown.slice(0, 200000)}  // safety cap to keep tokens in check
+${markdown.slice(0, 150000)}  // reduced cap when we have existing content
 ---
 `;
 
   try {
+    // Add delay before OpenAI call to respect rate limits
+    console.log(`  ⏳ Waiting ${OPENAI_DELAY_MS / 1000}s before OpenAI call...`);
+    await sleep(OPENAI_DELAY_MS);
+    
     const completion = await openai.chat.completions.create({
       model: 'gpt-4o-2024-08-06',
       messages: [
@@ -465,7 +569,7 @@ ${markdown.slice(0, 200000)}  // safety cap to keep tokens in check
       .filter(([key]) => key !== 'source')
       .map(([key, arr]) => `${key}: ${Array.isArray(arr) ? arr.length : 0}`)
       .join(', ');
-    console.log(`  ✨ Extracted: ${counts}`);
+    console.log(`  ✨ ${isUpdate ? 'Enhanced' : 'Extracted'}: ${counts}`);
     
     return parsed;
   } catch (error) {
@@ -572,6 +676,51 @@ const writeMarkdownItem = async (cls, item, source) => {
   return { path: dest, title, class: cls, source: source.url, scraped_at: source.scraped_at, tags: frontMatter.tags || [] };
 };
 
+// ---------- EXISTING CONTENT MANAGEMENT ----------
+const findExistingFiles = async (url) => {
+  const idxPath = path.join(OUT_DIR, 'index.json');
+  try {
+    const data = await fsp.readFile(idxPath, 'utf8');
+    const index = JSON.parse(data);
+    return index.items.filter(item => item.source === url);
+  } catch {
+    return [];
+  }
+};
+
+const readExistingContent = async (filePath) => {
+  try {
+    const content = await fsp.readFile(filePath, 'utf8');
+    // Extract the markdown content (everything after the front matter)
+    const yamlEndIndex = content.indexOf('---', 3);
+    if (yamlEndIndex !== -1) {
+      return content.slice(yamlEndIndex + 3).trim();
+    }
+    return content;
+  } catch {
+    return null;
+  }
+};
+
+const getExistingContentForUrl = async (url) => {
+  const existingFiles = await findExistingFiles(url);
+  const existingContent = [];
+  
+  for (const file of existingFiles) {
+    const content = await readExistingContent(file.path);
+    if (content) {
+      existingContent.push({
+        class: file.class,
+        title: file.title,
+        content: content,
+        path: file.path
+      });
+    }
+  }
+  
+  return existingContent;
+};
+
 const updateIndex = async (entries) => {
   const idxPath = path.join(OUT_DIR, 'index.json');
   let existing = { items: [] };
@@ -597,13 +746,14 @@ const crawl = async () => {
   const seedUrls = await serpDiscover(8);
   console.log(`🌱 Discovered ${seedUrls.length} seed URLs from SERP.`);
 
-  const browser = await createBrowserConnection();
+  let browser = await createBrowserConnection();
 
   const visited = new Set();
   let processed = 0;
   let extracted = 0;
+  let connectionFailures = 0;
 
-  const processPage = async (pageUrl, depth) => {
+  const processPageWithRecovery = async (pageUrl, depth) => {
     if (processed >= MAX_PAGES) {
       console.log(`🛑 Reached page limit (${MAX_PAGES}), skipping: ${pageUrl}`);
       return;
@@ -612,26 +762,44 @@ const crawl = async () => {
     visited.add(pageUrl);
 
     let page;
-    try {
-      console.log(`\n🔗 [Depth ${depth}] Processing ${processed + 1}/${MAX_PAGES}: ${pageUrl}`);
-      
-      // Create page directly like the working script
-      console.log(`  📄 Creating new page...`);
-      page = await browser.newPage();
-      
-      await page.setViewport({ width: 1920, height: 1080 });
-      console.log(`  ✅ Page created successfully`);
-        
-      console.log(`  📄 Loading page with Lightpanda...`);
-      
-      // Use the working navigation pattern
-      await page.goto(pageUrl, { 
-        waitUntil: 'networkidle0',
-        timeout: PAGE_TIMEOUT_MS
-      });
-      console.log(`  ✅ Page loaded successfully`);
+    let success = false;
+    let retries = 0;
+    const maxRetries = 2;
 
-        // Skip network API calls for Lightpanda compatibility
+    while (!success && retries <= maxRetries) {
+      try {
+        console.log(`\n🔗 [Depth ${depth}] Processing ${processed + 1}/${MAX_PAGES}: ${pageUrl}`);
+        if (retries > 0) {
+          console.log(`  🔄 Retry attempt ${retries}/${maxRetries}`);
+        }
+        
+        // Check if browser is still alive, reconnect if needed
+        const browserAlive = await isBrowserAlive(browser);
+        if (!browserAlive) {
+          console.log(`  🔌 Browser connection lost, reconnecting...`);
+          try {
+            await browser.disconnect().catch(() => {});
+          } catch {}
+          browser = await createBrowserConnection();
+          connectionFailures++;
+          console.log(`  ✅ Browser reconnected (failures: ${connectionFailures})`);
+        }
+        
+        // Create page
+        console.log(`  📄 Creating new page...`);
+        page = await browser.newPage();
+        
+        await page.setViewport({ width: 1920, height: 1080 });
+        console.log(`  ✅ Page created successfully`);
+          
+        console.log(`  📄 Loading page with Lightpanda...`);
+        
+        // Use the working navigation pattern
+        await page.goto(pageUrl, { 
+          waitUntil: 'networkidle0',
+          timeout: PAGE_TIMEOUT_MS
+        });
+        console.log(`  ✅ Page loaded successfully`);
 
         const title = await page.title();
         console.log(`  📖 Page title: "${title}"`);
@@ -642,13 +810,31 @@ const crawl = async () => {
         const scrapedAt = new Date().toISOString();
         console.log(`  📝 Content extracted: ${Math.round(md.length / 1024)}KB markdown`);
 
-        // Send to OpenAI for structured classification/extraction
-        const bundle = await extractWithOpenAI({ url: pageUrl, title, markdown: md, scrapedAt });
+        // Check for existing content for this URL
+        console.log(`  🔍 Checking for existing content...`);
+        const existingContent = await getExistingContentForUrl(pageUrl);
+        
+        // Send to OpenAI for structured classification/extraction (or enhancement)
+        const bundle = await extractWithOpenAI({ url: pageUrl, title, markdown: md, scrapedAt, existingContent });
 
-        // Write markdown items
-        console.log(`  💾 Saving extracted items...`);
+        // Write markdown items (this will overwrite existing files if they exist)
+        console.log(`  💾 Saving ${existingContent.length > 0 ? 'enhanced' : 'extracted'} items...`);
         const written = [];
         const classes = ['openings', 'middlegame', 'endgame', 'tactics', 'games', 'principles'];
+        
+        // If updating existing content, remove old files first to avoid duplicates
+        if (existingContent.length > 0) {
+          console.log(`  🗑️  Removing ${existingContent.length} existing files for update...`);
+          for (const existing of existingContent) {
+            try {
+              await fsp.unlink(existing.path);
+              console.log(`    ✅ Removed: ${path.basename(existing.path)}`);
+            } catch (e) {
+              console.warn(`    ⚠️  Could not remove ${existing.path}: ${e.message}`);
+            }
+          }
+        }
+        
         for (const cls of classes) {
           const arr = bundle[cls] || [];
           for (const item of arr) {
@@ -659,47 +845,83 @@ const crawl = async () => {
         if (written.length) {
           await updateIndex(written);
           extracted += written.length;
-          console.log(`  ✅ Saved ${written.length} chess items (Total extracted: ${extracted})`);
+          const action = existingContent.length > 0 ? 'Enhanced' : 'Saved';
+          console.log(`  ✅ ${action} ${written.length} chess items (Total extracted: ${extracted})`);
           console.log(`    📊 Breakdown: ${classes.map(cls => `${cls}: ${(bundle[cls] || []).length}`).filter(s => !s.endsWith(': 0')).join(', ')}`);
         } else {
           console.log(`  ⚪ No chess content found on this page`);
         }
 
+        success = true;
         processed += 1;
-
-      // For now, we'll process one page at a time without following links
-      // to ensure stable operation with Lightpanda
-      
-    } catch (e) {
-      console.error(`  ❌ Error processing ${pageUrl}:`, e?.message || e);
-      if (e.message?.includes('Target closed') || e.message?.includes('Session closed') || e.message?.includes('Connection closed')) {
-        console.log(`  🔄 Browser connection lost - this page will be skipped`);
-      } else if (e.message?.includes('Navigation timeout')) {
-        console.log(`  ⏰ Page took too long to load - skipping`);
-      }
-    } finally {
-      // Simple cleanup like the working script
-      if (page) {
-        try {
-          await page.close();
-          console.log(`  🔒 Page closed`);
-        } catch (closeError) {
-          console.warn(`  ⚠️  Could not close page: ${closeError.message}`);
+        
+      } catch (e) {
+        console.error(`  ❌ Error processing ${pageUrl}:`, e?.message || e);
+        
+        const isConnectionError = e.message?.includes('Target closed') || 
+                                e.message?.includes('Session closed') || 
+                                e.message?.includes('Connection closed') ||
+                                e.message?.includes('Protocol error') ||
+                                e.message?.includes('WebSocket');
+        
+        if (isConnectionError) {
+          console.log(`  🔄 Browser connection error detected`);
+          retries++;
+          if (retries <= maxRetries) {
+            console.log(`  ⏳ Waiting 5s before retry...`);
+            await sleep(5000);
+          } else {
+            console.log(`  ❌ Max retries reached, skipping this page`);
+          }
+        } else if (e.message?.includes('Navigation timeout')) {
+          console.log(`  ⏰ Page took too long to load - skipping`);
+          break;
+        } else {
+          console.log(`  ❌ Non-recoverable error - skipping`);
+          break;
+        }
+      } finally {
+        // Simple cleanup
+        if (page) {
+          try {
+            await page.close();
+            console.log(`  🔒 Page closed`);
+          } catch (closeError) {
+            console.warn(`  ⚠️  Could not close page: ${closeError.message}`);
+          }
+          page = null;
         }
       }
-      console.log(`  ⏳ Waiting ${REQUEST_DELAY_MS}ms before next page...`);
-      await sleep(REQUEST_DELAY_MS);
     }
     
-    processed += 1;
+    if (!success) {
+      processed += 1; // Still increment to avoid infinite loops
+    }
+    
+    console.log(`  ⏳ Waiting ${REQUEST_DELAY_MS / 1000}s before next page...`);
+    await sleep(REQUEST_DELAY_MS);
   };
 
   // Process pages sequentially like the working script
   const seedsToProcess = seedUrls.slice(0, Math.min(seedUrls.length, MAX_PAGES));
   console.log(`\n🌱 Processing ${seedsToProcess.length} seed URLs sequentially...`);
+  console.log(`⏱️  Estimated time: ~${Math.round(seedsToProcess.length * (REQUEST_DELAY_MS + OPENAI_DELAY_MS + PAGE_TIMEOUT_MS) / 60000)} minutes`);
+  console.log(`🐌 Rate limits: ${REQUEST_DELAY_MS / 1000}s between pages, ${OPENAI_DELAY_MS / 1000}s before OpenAI calls\n`);
   
-  for (const url of seedsToProcess) {
-    await processPage(url, 0);
+  const startTime = Date.now();
+  for (let i = 0; i < seedsToProcess.length; i++) {
+    const url = seedsToProcess[i];
+    console.log(`📈 Progress: ${i + 1}/${seedsToProcess.length} (${Math.round(((i + 1) / seedsToProcess.length) * 100)}%)`);
+    if (i > 0) {
+      const elapsed = Date.now() - startTime;
+      const avgTimePerPage = elapsed / i;
+      const remaining = (seedsToProcess.length - i) * avgTimePerPage;
+      console.log(`⏱️  Estimated remaining: ${Math.round(remaining / 60000)} minutes`);
+    }
+    if (connectionFailures > 0) {
+      console.log(`🔌 Connection recoveries so far: ${connectionFailures}`);
+    }
+    await processPageWithRecovery(url, 0);
   }
   
   try {
