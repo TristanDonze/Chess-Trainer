@@ -162,18 +162,27 @@
       isRecording = true;
       audioChunks = [];
       
-      mediaRecorder = new MediaRecorder(stream);
-      mediaRecorder.ondataavailable = (event) => {
-        audioChunks.push(event.data);
-      };
-      
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-        await sendAudioMessage(audioBlob);
-        stream.getTracks().forEach(track => track.stop());
-      };
-      
-      mediaRecorder.start();
+            // Try different audio formats for better compatibility
+            let options = {};
+            if (MediaRecorder.isTypeSupported('audio/webm')) {
+                options = { mimeType: 'audio/webm' };
+            } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+                options = { mimeType: 'audio/mp4' };
+            } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+                options = { mimeType: 'audio/ogg' };
+            }
+            
+            mediaRecorder = new MediaRecorder(stream, options);
+            mediaRecorder.ondataavailable = (event) => {
+                audioChunks.push(event.data);
+            };
+            
+            mediaRecorder.onstop = async () => {
+                const mimeType = mediaRecorder.mimeType || 'audio/webm';
+                const audioBlob = new Blob(audioChunks, { type: mimeType });
+                await sendAudioMessage(audioBlob);
+                stream.getTracks().forEach(track => track.stop());
+            };      mediaRecorder.start();
       updateRecordingUI(true);
       
       // Auto-stop recording after 30 seconds
@@ -220,15 +229,21 @@
     pendingResponses.set(requestId, placeholder);
 
     try {
-      // Convert audio blob to base64
-      const arrayBuffer = await audioBlob.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
-      const base64 = btoa(String.fromCharCode.apply(null, uint8Array));
+      // Convert audio blob to base64 using FileReader
+      const base64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result.split(',')[1]; // Remove data URL prefix
+          resolve(result);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(audioBlob);
+      });
 
       const payload = {
         audio: {
           b64: base64,
-          mime: 'audio/webm'
+          mime: audioBlob.type || 'audio/webm'
         },
         fen: getFenForRequest(),
         request_id: requestId

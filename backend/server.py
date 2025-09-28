@@ -731,6 +731,7 @@ class Server:
     async def _transcribe_audio(self, audio_data):
         """Transcribe audio data to text using OpenAI Whisper."""
         if not audio_data or not audio_data.get("b64"):
+            print("DEBUG: No audio data or b64 field missing")
             return None
 
         if not os.getenv("OPENAI_API_KEY"):
@@ -738,17 +739,34 @@ class Server:
 
         try:
             # Decode base64 audio data
+            print(f"DEBUG: Decoding {len(audio_data['b64'])} characters of base64 audio data")
             audio_bytes = base64.b64decode(audio_data["b64"])
+            print(f"DEBUG: Decoded to {len(audio_bytes)} bytes of audio data")
             
             # Create a temporary file for the audio data
             import tempfile
-            with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_file:
+            # Determine file extension from MIME type
+            mime_type = audio_data.get("mime", "audio/webm")
+            if "webm" in mime_type:
+                suffix = ".webm"
+            elif "mp4" in mime_type or "m4a" in mime_type:
+                suffix = ".m4a"
+            elif "ogg" in mime_type:
+                suffix = ".ogg"
+            else:
+                suffix = ".webm"  # Default fallback
+            
+            print(f"DEBUG: Using file suffix: {suffix} for MIME type: {mime_type}")
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as temp_file:
                 temp_file.write(audio_bytes)
                 temp_file_path = temp_file.name
+            
+            print(f"DEBUG: Created temporary file: {temp_file_path}")
 
             try:
                 # Use OpenAI client for transcription
                 client = self._ensure_openai_client()
+                print("DEBUG: Sending audio to OpenAI Whisper API")
                 with open(temp_file_path, "rb") as audio_file:
                     transcript = await asyncio.to_thread(
                         client.audio.transcriptions.create,
@@ -756,15 +774,20 @@ class Server:
                         file=audio_file,
                         response_format="text"
                     )
-                return transcript.strip() if isinstance(transcript, str) else transcript.text.strip()
+                
+                result = transcript.strip() if isinstance(transcript, str) else transcript.text.strip()
+                print(f"DEBUG: Transcription result: '{result}'")
+                return result
             finally:
                 # Clean up temporary file
                 try:
                     os.unlink(temp_file_path)
-                except:
-                    pass
+                    print(f"DEBUG: Cleaned up temporary file: {temp_file_path}")
+                except Exception as cleanup_error:
+                    print(f"DEBUG: Failed to cleanup temp file: {cleanup_error}")
 
         except Exception as exc:
+            print(f"DEBUG: Transcription error: {exc}")
             traceback.print_exc()
             raise RuntimeError(f"Speech-to-text transcription failed: {exc}")
 

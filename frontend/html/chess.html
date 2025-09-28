@@ -126,8 +126,8 @@
         audioToggleAudio.classList.add('active');
     }
 
-    // Initialize chat mode
-    setChatAudioMode(false);
+    // Initialize chat mode - sync with commentary audio mode
+    setChatAudioMode(commentaryAudioEnabled);
 
     function setChatAudioMode(enabled) {
         isAudioModeChat = enabled;
@@ -164,13 +164,24 @@
             isRecordingChat = true;
             audioChunksChat = [];
             
-            mediaRecorderChat = new MediaRecorder(stream);
+            // Try different audio formats for better compatibility
+            let options = {};
+            if (MediaRecorder.isTypeSupported('audio/webm')) {
+                options = { mimeType: 'audio/webm' };
+            } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+                options = { mimeType: 'audio/mp4' };
+            } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+                options = { mimeType: 'audio/ogg' };
+            }
+            
+            mediaRecorderChat = new MediaRecorder(stream, options);
             mediaRecorderChat.ondataavailable = (event) => {
                 audioChunksChat.push(event.data);
             };
             
             mediaRecorderChat.onstop = async () => {
-                const audioBlob = new Blob(audioChunksChat, { type: 'audio/webm' });
+                const mimeType = mediaRecorderChat.mimeType || 'audio/webm';
+                const audioBlob = new Blob(audioChunksChat, { type: mimeType });
                 await sendAudioChatMessage(audioBlob);
                 stream.getTracks().forEach(track => track.stop());
             };
@@ -206,15 +217,21 @@
         chat_send_message('🎤 [Voice message]', "user");
 
         try {
-            // Convert audio blob to base64
-            const arrayBuffer = await audioBlob.arrayBuffer();
-            const uint8Array = new Uint8Array(arrayBuffer);
-            const base64 = btoa(String.fromCharCode.apply(null, uint8Array));
+            // Convert audio blob to base64 using FileReader
+            const base64 = await new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const result = reader.result.split(',')[1]; // Remove data URL prefix
+                    resolve(result);
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(audioBlob);
+            });
 
             const payload = {
                 audio: {
                     b64: base64,
-                    mime: 'audio/webm'
+                    mime: audioBlob.type || 'audio/webm'
                 },
                 context: chat_analysis_context
             };
@@ -793,9 +810,9 @@
         }
     }
 
-    function chat_send_message(msg) {
+    function chat_send_message(msg, type = 'assistant') {
         const wrapper = document.createElement('div');
-        wrapper.className = 'message message--assistant';
+        wrapper.className = `message message--${type}`;
 
         // Bubble container
         const bubble = document.createElement('div');
@@ -811,6 +828,12 @@
         wrapper.appendChild(bubble);
 
         document.querySelector('.messages-wrapper').appendChild(wrapper);
+        
+        // Scroll to bottom
+        const messagesWrapper = document.querySelector('.messages-wrapper');
+        if (messagesWrapper) {
+            messagesWrapper.scrollTop = messagesWrapper.scrollHeight;
+        }
     }
 
     chat_clear_messages = () => {
