@@ -183,7 +183,7 @@ nav > a.current {
     flex-direction: column;
     gap: clamp(1rem, 2.5vw, 1.6rem);
     position: relative;
-    min-height: 0; 
+    min-height: 0;
 }
 
 .messages-wrapper {
@@ -398,7 +398,7 @@ nav > a.current {
   .chessboard-wrapper,
   .interaction-wrapper {
     height: 100%;
-    min-height: 0; 
+    /* min-height: 0;  */
   }
 
   .chessboard-wrapper {
