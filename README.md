@@ -2,6 +2,10 @@
 
 Welcome to **MagnOSS**, our hackathon project built during **{Tech: Europe}**.
 Think of it as your very own *Magnus Carlsen at home* – free, open source, and powered by AI.
+---
+
+### 🌐 Waitlist Registration: [https://magnoss.vercel.app/](https://magnoss.vercel.app/)  
+### 🎥 Demo Youtube Video: [https://magnoss.vercel.app/demo](https://magnoss.vercel.app/demo)
 
 ---
 
