@@ -42,6 +42,11 @@ function read_message(event) {
                 read_theory_answer(message_data.data.content);
             }
             break;
+        case "game-commentary":
+            if (typeof handle_game_commentary === 'function') {
+                handle_game_commentary(message_data.data.content);
+            }
+            break;
         default:
             return message_data
     }

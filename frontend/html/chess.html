@@ -76,6 +76,126 @@
     let current_turn = 'white';
     let is_game_analysis = false;
 
+    const messagesWrapper = document.querySelector('.messages-wrapper');
+    const audioToggleText = document.querySelector('.switch-to-text');
+    const audioToggleAudio = document.querySelector('.switch-to-audio');
+    const commentaryHistory = [];
+    let commentaryAudioEnabled = true;
+    let commentaryAudioPlayer = null;
+
+    function setCommentaryAudio(enabled) {
+        commentaryAudioEnabled = enabled;
+        if (audioToggleText) {
+            audioToggleText.classList.toggle('active', !enabled);
+        }
+        if (audioToggleAudio) {
+            audioToggleAudio.classList.toggle('active', enabled);
+        }
+        if (!enabled && commentaryAudioPlayer) {
+            commentaryAudioPlayer.pause();
+            commentaryAudioPlayer = null;
+        }
+    }
+
+    if (audioToggleText) {
+        audioToggleText.addEventListener('click', () => setCommentaryAudio(false));
+    }
+    if (audioToggleAudio) {
+        audioToggleAudio.addEventListener('click', () => setCommentaryAudio(true));
+        audioToggleAudio.classList.add('active');
+    }
+
+    function handle_game_commentary(payload) {
+        if (!payload) return;
+        const container = messagesWrapper || document.querySelector('.messages-wrapper');
+        if (!container) return;
+
+        commentaryHistory.push(payload);
+        while (commentaryHistory.length > 30) commentaryHistory.shift();
+
+        const entry = document.createElement('div');
+        entry.className = `commentary-entry severity-${payload.severity || 'neutral'}`;
+
+        const heading = document.createElement('div');
+        heading.className = 'commentary-heading';
+        heading.textContent = payload.severity_label || 'Move feedback';
+
+        const moveSpan = document.createElement('span');
+        moveSpan.className = 'move';
+        const colorText = payload.player_color === 'black' ? 'Black' : 'White';
+        const moveLabel = payload.move?.san || payload.move?.uci || '';
+        moveSpan.textContent = `${colorText}: ${moveLabel}`;
+        heading.appendChild(moveSpan);
+        entry.appendChild(heading);
+
+        const meta = document.createElement('div');
+        meta.className = 'commentary-meta';
+        const deltaRaw = Number(payload.evaluation?.player_delta_pawns);
+        const delta = Number.isFinite(deltaRaw) ? deltaRaw : 0;
+        const deltaText = `${delta >= 0 ? '+' : ''}${delta.toFixed(2)} pawns`;
+
+        const afterCpRaw = Number(payload.evaluation?.player_score_after_cp);
+        const evalAfterText = Number.isFinite(afterCpRaw)
+            ? `${afterCpRaw >= 0 ? '+' : ''}${(afterCpRaw / 100).toFixed(2)} for ${colorText}`
+            : `${payload.evaluation?.player_score_after_display || '+0.00'} for ${colorText}`;
+
+        meta.innerHTML = `<span>Δ ${deltaText}</span><span>Eval now ${evalAfterText}</span>`;
+
+        if (payload.best_move_summary && payload.best_move && !payload.actual_is_best) {
+            const bestLabel = payload.best_move.san || payload.best_move.uci;
+            meta.innerHTML += `<span>Best: ${bestLabel} (${payload.best_move_summary})</span>`;
+        }
+
+        const ts = payload.timestamp ? new Date(payload.timestamp * 1000) : new Date();
+        meta.innerHTML += `<span class="timestamp">${ts.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>`;
+        entry.appendChild(meta);
+
+        const comment = document.createElement('p');
+        comment.className = 'commentary-text';
+        comment.textContent = payload.comment || '';
+        entry.appendChild(comment);
+
+        clear_advice_move();
+
+        if (payload.recommendation && payload.show_recommendation && payload.recommendation.from && payload.recommendation.to) {
+            const suggestion = document.createElement('div');
+            suggestion.className = 'commentary-recommendation';
+
+            const icon = document.createElement('span');
+            icon.className = 'material-symbols-outlined';
+            icon.textContent = 'north_east';
+            suggestion.appendChild(icon);
+
+            const recommendationMove = payload.best_move?.san || payload.recommendation.uci;
+            suggestion.append(`Consider ${recommendationMove} in similar positions.`);
+            entry.appendChild(suggestion);
+
+            show_advice_move({ from: payload.recommendation.from, to: payload.recommendation.to });
+        }
+
+        container.appendChild(entry);
+        while (container.childElementCount > 15) {
+            container.removeChild(container.firstElementChild);
+        }
+        container.scrollTop = container.scrollHeight;
+
+        if (payload.audio && payload.audio.b64 && commentaryAudioEnabled) {
+            const mime = payload.audio.mime || 'audio/mpeg';
+            const src = `data:${mime};base64,${payload.audio.b64}`;
+            try {
+                if (commentaryAudioPlayer) {
+                    commentaryAudioPlayer.pause();
+                }
+                commentaryAudioPlayer = new Audio(src);
+                commentaryAudioPlayer.play().catch(() => {});
+            } catch (error) {
+                console.error('Unable to play commentary audio', error);
+            }
+        }
+    }
+
+    window.handle_game_commentary = handle_game_commentary;
+
     function start_training_game() {
         const svg = d3.select("#board");
         svg.selectAll("*").remove();

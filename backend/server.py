@@ -1,5 +1,11 @@
 
+import base64
+import math
+import os
 import time
+
+from openai import OpenAI
+
 from src.utils.socket_server import ServerSocket
 from src.utils.extract_chesscom import get_chesscom_data
 
@@ -32,6 +38,14 @@ class Server:
         self.client_profil = None
 
         self.focused_game = None
+        self.analysis_engine = None
+        self._reset_player_eval_history()
+        self._analysis_lock = asyncio.Lock()
+        self._commentary_lock = asyncio.Lock()
+        self._tts_lock = asyncio.Lock()
+        self._tts_client = None
+        self._tts_voice = os.getenv("COMMENTARY_TTS_VOICE", os.getenv("TTS_VOICE", "alloy"))
+        self._tts_model = os.getenv("COMMENTARY_TTS_MODEL", os.getenv("TTS_MODEL", "gpt-4o-mini-tts"))
 
         for model in AVAILABLE_MODELS.values():
             try: getattr(model, "__author__")
@@ -42,6 +56,22 @@ class Server:
 
             try: getattr(model, "play")
             except: raise Engine.UndefinedPlayMethodError(model, f"Model {model.__name__} has no play method")
+
+        self._ensure_analysis_engine()
+
+    def _reset_player_eval_history(self):
+        self._last_player_eval_cp = {
+            chess.WHITE: None,
+            chess.BLACK: None,
+        }
+
+    def _debug_log(self, payload):
+        if not os.getenv("CHESS_TRAINER_DEBUG"):
+            return
+        try:
+            print("[debug]", payload)
+        except Exception:
+            pass
 
     def open_file(self, name, mode):
         """
@@ -147,6 +177,7 @@ class Server:
         """
         Start a new game with the given info.
         """
+        self._reset_player_eval_history()
         self.focused_game = Game()
         
         # self.focused_game.play(white=Player(info["player2"]), black=Player(info["player1"]))
@@ -233,8 +264,12 @@ class Server:
             return
         
         try:
+            pre_fen = self.focused_game.fen()
+            player_color = self.focused_game.board.turn
+            move_number = self.focused_game.board.fullmove_number
             move = chess.Move.from_uci(info["start"].lower() + info["end"].lower() + (info.get("promote", "") or "").lower())
             self.focused_game.move(move)
+            post_fen = self.focused_game.fen()
         except Exception as e:
             asyncio.create_task(self.socket.broadcast(protocol.Message(str, "error"(e)).to_json()))
             traceback.print_exc()
@@ -248,6 +283,18 @@ class Server:
         }
 
         asyncio.create_task(self.socket.broadcast(protocol.Message(ctn, "confirm-move").to_json()))
+
+        if not self._is_engine_color(player_color):
+            asyncio.create_task(
+                self._provide_live_commentary(
+                    move=move,
+                    player_color=player_color,
+                    pre_fen=pre_fen,
+                    post_fen=post_fen,
+                    move_number=move_number
+                )
+            )
+
         async def play():
             self.focused_game.play_engine_move()
         asyncio.create_task(play())
@@ -312,6 +359,7 @@ class Server:
         Analyze a game with the given PGN.
         """
         # 1. load the PGN into a game object
+        self._reset_player_eval_history()
         self.focused_game = Game()
         self.focused_game.load(info["game"]["pgn"], format="pgn")
         
@@ -395,6 +443,564 @@ class Server:
             }
 
         await self.socket.send(client, protocol.Message(payload, "theory-answer"))
+
+    def _canon_player_color(self, player_color, fallback_turn=None):
+        """Return chess.WHITE or chess.BLACK for assorted inputs."""
+        if isinstance(player_color, bool):
+            return chess.WHITE if player_color else chess.BLACK
+        if isinstance(player_color, int):
+            if player_color == 1:
+                return chess.WHITE
+            if player_color == 0:
+                return chess.BLACK
+        if player_color in (chess.WHITE, chess.BLACK):
+            return player_color
+        if isinstance(player_color, str):
+            s = player_color.strip().lower()
+            if s in {"white", "w", "1", "true", "yes"}:
+                return chess.WHITE
+            if s in {"black", "b", "0", "false", "no"}:
+                return chess.BLACK
+        fallback = fallback_turn if fallback_turn in (chess.WHITE, chess.BLACK) else None
+        if fallback is None:
+            self._debug_log({
+                "warn": "canon_color_fallback_missing",
+                "received": repr(player_color)
+            })
+        return fallback or chess.WHITE
+
+    def _ensure_analysis_engine(self):
+        if self.analysis_engine is not None:
+            return self.analysis_engine
+
+        stockfish_cls = AVAILABLE_MODELS.get("Stockfish AI")
+        if stockfish_cls is None:
+            return None
+
+        try:
+            self.analysis_engine = stockfish_cls(skill_level=20, depth=18, think_time=80).setup()
+        except Exception as exc:
+            traceback.print_exc()
+            self.analysis_engine = None
+        return self.analysis_engine
+
+    def _is_engine_color(self, color):
+        if self.focused_game is None:
+            return False
+
+        color = self._canon_player_color(color, fallback_turn=chess.WHITE)
+        player = self.focused_game.white if color == chess.WHITE else self.focused_game.black
+        if player is None:
+            return False
+        return getattr(player, "is_engine", False)
+
+    async def _provide_live_commentary(self, move: chess.Move, player_color, pre_fen: str, post_fen: str, move_number: int):
+        if self._ensure_analysis_engine() is None:
+            return
+
+        try:
+            analysis = await self._collect_move_analysis(move, player_color, pre_fen, post_fen, move_number)
+            if not analysis:
+                return
+
+            comment_text = await self._generate_comment_text(analysis)
+            if comment_text:
+                analysis["comment"] = comment_text.strip()
+            else:
+                analysis["comment"] = self._fallback_comment(analysis)
+
+            audio_payload = await self._generate_comment_audio(analysis.get("comment"))
+            if audio_payload:
+                analysis["audio"] = audio_payload
+
+            message_payload = self._build_commentary_message(analysis)
+            if message_payload:
+                await self.socket.broadcast(protocol.Message(message_payload, "game-commentary").to_json())
+        except RagServiceError:
+            pass
+        except Exception:
+            traceback.print_exc()
+
+    async def _collect_move_analysis(self, move: chess.Move, player_color, pre_fen: str, post_fen: str, move_number: int):
+        engine = self._ensure_analysis_engine()
+        if engine is None:
+            return None
+
+        async with self._analysis_lock:
+            return await asyncio.to_thread(
+                self._collect_move_analysis_sync,
+                engine,
+                move,
+                player_color,
+                pre_fen,
+                post_fen,
+                move_number
+            )
+
+    def _collect_move_analysis_sync(self, engine, move: chess.Move, player_color, pre_fen: str, post_fen: str, move_number: int):
+        try:
+            board_before = chess.Board(pre_fen)
+            board_after = chess.Board(post_fen)
+        except Exception:
+            return None
+        
+        player_color_norm = self._canon_player_color(player_color, fallback_turn=board_before.turn)
+
+        try:
+            move_san = board_before.san(move)
+        except Exception:
+            move_san = move.uci().upper()
+        move_uci = move.uci().upper()
+        move_from = chess.square_name(move.from_square).upper()
+        move_to = chess.square_name(move.to_square).upper()
+        promotion = chess.piece_symbol(move.promotion).upper() if move.promotion else None
+
+        stockfish_engine = engine.stockfish
+
+        stockfish_engine.set_fen_position(pre_fen)
+        try:
+            raw_top = stockfish_engine.get_top_moves(3) or []
+        except Exception:
+            raw_top = []
+        raw_pre = stockfish_engine.get_evaluation()
+
+        stockfish_engine.set_fen_position(post_fen)
+        raw_post = stockfish_engine.get_evaluation()
+
+        pre_eval = self._normalize_evaluation(board_before, raw_pre)
+        post_eval = self._normalize_evaluation(board_after, raw_post)
+
+        score_before_cp = pre_eval.get("score_for_white_cp")
+        if score_before_cp is None:
+            score_before_cp = 0.0
+        score_after_cp = post_eval.get("score_for_white_cp")
+        if score_after_cp is None:
+            score_after_cp = 0.0
+        raw_delta_cp = score_after_cp - score_before_cp
+        move_delta_cp = raw_delta_cp if player_color_norm == chess.WHITE else -raw_delta_cp
+
+        player_score_after_cp = score_after_cp if player_color_norm == chess.WHITE else -score_after_cp
+
+        previous_eval_cp = self._last_player_eval_cp.get(player_color_norm)
+        if previous_eval_cp is not None:
+            player_delta_cp = player_score_after_cp - previous_eval_cp
+        else:
+            player_delta_cp = move_delta_cp
+        self._last_player_eval_cp[player_color_norm] = player_score_after_cp
+
+        top_moves = self._convert_top_moves(board_before, raw_top)
+        best_move = top_moves[0] if top_moves else None
+        actual_is_best = bool(best_move and best_move.get("uci") == move_uci)
+
+        recommendation = None
+        if best_move and not actual_is_best:
+            recommendation = {
+                "from": best_move.get("from"),
+                "to": best_move.get("to"),
+                "uci": best_move.get("uci"),
+                "san": best_move.get("san"),
+                "promotion": best_move.get("promotion")
+            }
+
+        severity_key, severity_label = self._classify_move_severity(player_color_norm, player_delta_cp, post_eval)
+
+        analysis = {
+            "pre_fen": pre_fen,
+            "fen": post_fen,
+            "player_color": "white" if player_color_norm == chess.WHITE else "black",
+            "move_number": move_number,
+            "move": {
+                "uci": move_uci,
+                "san": move_san,
+                "from": move_from,
+                "to": move_to,
+                "promotion": promotion
+            },
+            "pre_eval": pre_eval,
+            "post_eval": post_eval,
+            "pre_eval_summary": self._summarize_eval(pre_eval),
+            "post_eval_summary": self._summarize_eval(post_eval),
+            "score_before_cp": score_before_cp,
+            "score_after_cp": score_after_cp,
+            "player_delta_cp": player_delta_cp,
+            "player_delta_pawns": player_delta_cp / 100 if player_delta_cp is not None else None,
+            "severity": severity_key,
+            "severity_label": severity_label,
+            "top_moves": top_moves,
+            "best_move": best_move,
+            "actual_is_best": actual_is_best,
+            "recommendation": recommendation,
+            "show_recommendation": bool(recommendation),
+            "player_score_after_cp": player_score_after_cp,
+            "player_score_after_display": self._format_cp(player_score_after_cp),
+            "raw_delta_cp": move_delta_cp,
+        }
+
+        if best_move:
+            analysis["best_move_summary"] = self._summarize_move_score(best_move)
+        else:
+            analysis["best_move_summary"] = None
+
+        return analysis
+
+    def _convert_top_moves(self, board: chess.Board, raw_list):
+        top_moves = []
+        for entry in raw_list:
+            move_code = (entry.get("Move") or "").strip()
+            if not move_code:
+                continue
+            move_uci = move_code.upper()
+            info = {
+                "uci": move_uci,
+                "centipawn": entry.get("Centipawn"),
+                "mate": entry.get("Mate"),
+            }
+            try:
+                move_obj = chess.Move.from_uci(move_uci.lower())
+            except ValueError:
+                move_obj = None
+
+            if move_obj and move_obj in board.legal_moves:
+                info["san"] = board.san(move_obj)
+                info["from"] = chess.square_name(move_obj.from_square).upper()
+                info["to"] = chess.square_name(move_obj.to_square).upper()
+                if move_obj.promotion:
+                    info["promotion"] = chess.piece_symbol(move_obj.promotion).upper()
+            else:
+                info["from"] = move_uci[:2]
+                info["to"] = move_uci[2:4]
+                info["promotion"] = move_uci[4].upper() if len(move_uci) == 5 else None
+
+            score_cp, mate_in_moves, winner = self._score_from_top_entry(board, entry)
+            info["score_for_white_cp"] = score_cp
+            info["mate_in_moves"] = mate_in_moves
+            info["winner"] = winner
+            top_moves.append(info)
+
+        return top_moves
+
+    def _normalize_evaluation(self, board: chess.Board, raw_eval):
+        if not raw_eval:
+            return {"type": "unknown", "score_for_white_cp": 0.0}
+
+        eval_type = raw_eval.get("type")
+        result = {"type": eval_type}
+
+        if eval_type == "mate":
+            mate_val = raw_eval.get("value", 0)
+            if mate_val == 0:
+                result.update({
+                    "score_for_white_cp": 0.0,
+                    "winner": None,
+                    "mate_in_moves": None
+                })
+                return result
+
+            mate_plies = abs(int(mate_val))
+            mate_moves = math.ceil(mate_plies / 2)
+            winner_color = board.turn if mate_val > 0 else (chess.WHITE if board.turn == chess.BLACK else chess.BLACK)
+            score_for_white = 100000 - mate_moves * 100
+            # if winner_color == chess.BLACK:
+            #     score_for_white = -score_for_white
+
+            result.update({
+                "score_for_white_cp": -score_for_white,
+                "winner": "white" if winner_color == chess.WHITE else "black",
+                "mate_in_moves": mate_moves
+            })
+            return result
+
+        cp_val = raw_eval.get("value", 0)
+        try:
+            cp_val = float(cp_val)
+        except (TypeError, ValueError):
+            cp_val = 0.0
+
+        if board.turn == chess.WHITE:
+            cp_val = -cp_val
+
+        result.update({
+            "score_for_white_cp": cp_val,
+            "cp": cp_val
+        })
+        return result
+
+    def _score_from_top_entry(self, board: chess.Board, entry):
+        mate_val = entry.get("Mate")
+        if mate_val is not None:
+            try:
+                mate_val = int(mate_val)
+            except (TypeError, ValueError):
+                mate_val = 0
+        cp_val = entry.get("Centipawn")
+        if cp_val is not None:
+            try:
+                cp_val = float(cp_val)
+            except (TypeError, ValueError):
+                cp_val = None
+
+        if mate_val and mate_val != 0:
+            mate_plies = abs(mate_val)
+            mate_moves = math.ceil(mate_plies / 2)
+            winner_color = board.turn if mate_val > 0 else (chess.WHITE if board.turn == chess.BLACK else chess.BLACK)
+            score_for_white = 100000 - mate_moves * 100
+            if winner_color == chess.BLACK:
+                score_for_white = -score_for_white
+            return score_for_white, mate_moves, "white" if winner_color == chess.WHITE else "black"
+
+        score_cp = cp_val or 0.0
+        if board.turn == chess.BLACK:
+            score_cp = -score_cp
+        return score_cp, None, None
+
+    def _classify_move_severity(self, player_color, player_delta_cp, post_eval):
+        winner = post_eval.get("winner")
+        mate_in = post_eval.get("mate_in_moves")
+        if winner and mate_in:
+            if (winner == "white" and player_color == chess.WHITE) or (winner == "black" and player_color == chess.BLACK):
+                return "brilliant", f"Winning - mate in {mate_in}"
+            return "blunder", f"Blunder - allows mate in {mate_in}"
+
+        delta = player_delta_cp or 0.0
+        if delta <= -250:
+            return "blunder", "Blunder"
+        if delta <= -120:
+            return "mistake", "Mistake"
+        if delta <= -60:
+            return "inaccuracy", "Inaccuracy"
+        if delta >= 160:
+            return "brilliant", "Brilliant move"
+        if delta >= 80:
+            return "good", "Strong move"
+        return "neutral", "Solid move"
+
+    def _format_cp(self, cp_value):
+        if cp_value is None:
+            return "+0.00"
+        return f"{cp_value / 100:+.2f}"
+
+    def _summarize_eval(self, evaluation):
+        if not evaluation:
+            return "+0.00 for White"
+        winner = evaluation.get("winner")
+        mate_in = evaluation.get("mate_in_moves")
+        if winner and mate_in:
+            return f"Mate in {mate_in} for {winner.capitalize()}"
+
+        score_cp = evaluation.get("score_for_white_cp")
+        if score_cp is None:
+            score_cp = 0.0
+        return f"{self._format_cp(score_cp)} for White"
+
+    def _summarize_move_score(self, move_info):
+        if not move_info:
+            return None
+        winner = move_info.get("winner")
+        mate_in = move_info.get("mate_in_moves")
+        if winner and mate_in:
+            return f"Mate in {mate_in} for {winner.capitalize()}"
+
+        score_cp = move_info.get("score_for_white_cp")
+        if score_cp is None:
+            return None
+        return f"{self._format_cp(score_cp)} for White"
+
+    def _build_comment_prompt(self, analysis):
+        if not analysis:
+            return None
+
+        color_text = "White" if analysis.get("player_color") == "white" else "Black"
+        move_info = analysis.get("move", {})
+        severity_label = analysis.get("severity_label", "")
+        delta_pawns = analysis.get("player_delta_cp", 0.0) / 100
+
+        lines = [
+            f"We are analyzing a live chess game. {color_text} just played {move_info.get('san') or move_info.get('uci')} ({move_info.get('uci')}) on move {analysis.get('move_number')}.",
+            f"Before the move, Stockfish evaluation was {analysis.get('pre_eval_summary')}. After the move it is {analysis.get('post_eval_summary')}.",
+            f"This changed {color_text}'s evaluation by {delta_pawns:+.2f} pawns ({severity_label}).",
+        ]
+
+        best_move = analysis.get("best_move")
+        if best_move and not analysis.get("actual_is_best"):
+            best_label = best_move.get("san") or best_move.get("uci")
+            best_summary = analysis.get("best_move_summary")
+            if best_summary:
+                lines.append(f"Stockfish recommended {best_label}, leading to {best_summary}.")
+            else:
+                lines.append(f"Stockfish recommended {best_label}.")
+
+        lines.append("Provide at most two concise coaching sentences for the player. Explain the move's quality and give one concrete improvement suggestion if needed.")
+        return "\n".join(lines)
+
+    async def _generate_comment_text(self, analysis):
+        question = self._build_comment_prompt(analysis)
+        if not question:
+            return None
+
+        try:
+            async with self._commentary_lock:
+                response = await asyncio.to_thread(
+                    THEORY_ASSISTANT.answer,
+                    question=question,
+                    fen=analysis.get("fen"),
+                    request_id=None
+                )
+        except RagServiceError:
+            return None
+        except Exception:
+            traceback.print_exc()
+            return None
+
+        if not response:
+            return None
+
+        answer = response.get("answer") if isinstance(response, dict) else None
+        if not answer:
+            return None
+        return answer.strip()
+
+    async def _generate_comment_audio(self, text):
+        if not text or not text.strip():
+            return None
+        if not os.getenv("OPENAI_API_KEY"):
+            return None
+        if not self._tts_model:
+            return None
+
+        try:
+            async with self._tts_lock:
+                return await asyncio.to_thread(self._synthesize_commentary_sync, text.strip())
+        except Exception:
+            traceback.print_exc()
+            return None
+
+    def _synthesize_commentary_sync(self, text):
+        if not text:
+            return None
+
+        try:
+            client = self._ensure_tts_client()
+        except Exception:
+            traceback.print_exc()
+            return None
+
+        if client is None:
+            return None
+
+        try:
+            response = client.audio.speech.create(
+                model=self._tts_model,
+                voice=self._tts_voice,
+                input=text,
+                format="mp3"
+            )
+        except Exception:
+            traceback.print_exc()
+            return None
+
+        audio_bytes = b""
+        try:
+            audio_bytes = response.read()
+        except AttributeError:
+            try:
+                audio_bytes = b"".join(chunk for chunk in response.iter_bytes())
+            except Exception:
+                audio_bytes = b""
+
+        if not audio_bytes:
+            return None
+
+        return {
+            "mime": "audio/mpeg",
+            "b64": base64.b64encode(audio_bytes).decode("ascii"),
+        }
+
+    def _ensure_tts_client(self):
+        if self._tts_client is None:
+            self._tts_client = OpenAI()
+        return self._tts_client
+
+    def _fallback_comment(self, analysis):
+        move_info = analysis.get("move", {})
+        severity = analysis.get("severity")
+        color = analysis.get("player_color", "white").capitalize()
+        move_label = move_info.get("san") or move_info.get("uci") or "the move"
+        best_move = analysis.get("best_move") or {}
+        best_label = best_move.get("san") or best_move.get("uci")
+
+        if severity == "blunder":
+            if best_label:
+                return f"{color} blundered with {move_label}. {best_label} would keep the king safe."
+            return f"{color} blundered with {move_label}. Watch for tactical shots next time."
+        if severity == "mistake":
+            if best_label:
+                return f"{move_label} is a mistake; try {best_label} to fight for equality."
+            return f"{move_label} was a mistake; aim for more active squares."
+        if severity == "inaccuracy":
+            if best_label:
+                return f"{move_label} is slightly inaccurate. {best_label} keeps the pressure."
+            return f"{move_label} is okay but there was a sharper continuation."
+        if severity == "brilliant" or severity == "good":
+            return f"Great job! {move_label} is a strong idea."
+        return f"{move_label} keeps the position stable. Stay alert for the next plan."
+
+    def _build_commentary_message(self, analysis):
+        if not analysis:
+            return None
+
+        score_before_cp = analysis.get("score_before_cp")
+        if score_before_cp is None:
+            score_before_cp = 0.0
+        score_after_cp = analysis.get("score_after_cp")
+        if score_after_cp is None:
+            score_after_cp = 0.0
+        player_delta_cp = analysis.get("player_delta_cp")
+        if player_delta_cp is None:
+            player_delta_cp = 0.0
+        player_score_after_cp = analysis.get("player_score_after_cp")
+        if player_score_after_cp is None:
+            player_score_after_cp = 0.0
+
+        evaluation = {
+            "before": {
+                "summary": analysis.get("pre_eval_summary"),
+                "score_cp": round(score_before_cp, 1),
+                "score_pawns": round(score_before_cp / 100, 2)
+            },
+            "after": {
+                "summary": analysis.get("post_eval_summary"),
+                "score_cp": round(score_after_cp, 1),
+                "score_pawns": round(score_after_cp / 100, 2)
+            },
+            "player_delta_cp": round(player_delta_cp, 1),
+            "player_delta_pawns": round(player_delta_cp / 100, 2),
+            "player_score_after_cp": round(player_score_after_cp, 1),
+            "player_score_after_display": analysis.get("player_score_after_display"),
+        }
+
+        payload = {
+            "timestamp": time.time(),
+            "fen": analysis.get("fen"),
+            "player_color": analysis.get("player_color"),
+            "move_number": analysis.get("move_number"),
+            "move": analysis.get("move"),
+            "severity": analysis.get("severity"),
+            "severity_label": analysis.get("severity_label"),
+            "evaluation": evaluation,
+            "comment": analysis.get("comment"),
+            "best_move": analysis.get("best_move"),
+            "top_moves": analysis.get("top_moves"),
+            "show_recommendation": analysis.get("show_recommendation"),
+            "recommendation": analysis.get("recommendation"),
+            "actual_is_best": analysis.get("actual_is_best"),
+            "best_move_summary": analysis.get("best_move_summary"),
+        }
+
+        audio_payload = analysis.get("audio")
+        if audio_payload:
+            payload["audio"] = audio_payload
+
+        return payload
 
     def connect_user(self, info):
         """
