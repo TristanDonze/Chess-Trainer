@@ -503,11 +503,18 @@ class Server:
             if not analysis:
                 return
 
-            comment_text = await self._generate_comment_text(analysis)
+            severity = analysis.get("severity")
+            comment_text = None
+            if severity != "correct":
+                comment_text = await self._generate_comment_text(analysis)
+
             if comment_text:
                 analysis["comment"] = comment_text.strip()
             else:
-                analysis["comment"] = self._fallback_comment(analysis)
+                if severity == "correct":
+                    analysis["comment"] = self._comment_for_correct_move(analysis)
+                else:
+                    analysis["comment"] = self._fallback_comment(analysis)
 
             audio_payload = await self._generate_comment_audio(analysis.get("comment"))
             if audio_payload:
@@ -772,7 +779,7 @@ class Server:
             return "brilliant", "Brilliant move"
         if delta >= 80:
             return "good", "Strong move"
-        return "neutral", "Solid move"
+        return "correct", "Correct move"
 
     def _format_cp(self, cp_value):
         if cp_value is None:
@@ -942,7 +949,15 @@ class Server:
             return f"{move_label} is okay but there was a sharper continuation."
         if severity == "brilliant" or severity == "good":
             return f"Great job! {move_label} is a strong idea."
+        if severity == "correct":
+            return self._comment_for_correct_move(analysis)
         return f"{move_label} keeps the position stable. Stay alert for the next plan."
+
+    def _comment_for_correct_move(self, analysis):
+        move_info = analysis.get("move", {})
+        color = analysis.get("player_color", "white").capitalize()
+        move_label = move_info.get("san") or move_info.get("uci") or "the move"
+        return f"{color} played {move_label}, a correct move that maintains the balance."
 
     def _build_commentary_message(self, analysis):
         if not analysis:

@@ -114,7 +114,7 @@
         while (commentaryHistory.length > 30) commentaryHistory.shift();
 
         const entry = document.createElement('div');
-        entry.className = `commentary-entry severity-${payload.severity || 'neutral'}`;
+        entry.className = `commentary-entry severity-${payload.severity || 'correct'}`;
 
         const heading = document.createElement('div');
         heading.className = 'commentary-heading';
@@ -169,8 +169,6 @@
             const recommendationMove = payload.best_move?.san || payload.recommendation.uci;
             suggestion.append(`Consider ${recommendationMove} in similar positions.`);
             entry.appendChild(suggestion);
-
-            show_advice_move({ from: payload.recommendation.from, to: payload.recommendation.to });
         }
 
         container.appendChild(entry);

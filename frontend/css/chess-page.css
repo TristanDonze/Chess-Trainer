@@ -196,7 +196,7 @@ nav > a:hover {
 .commentary-entry.severity-inaccuracy { border-left-color: #f59f00; }
 .commentary-entry.severity-brilliant { border-left-color: #12b886; }
 .commentary-entry.severity-good { border-left-color: #1971c2; }
-.commentary-entry.severity-neutral { border-left-color: #495057; }
+.commentary-entry.severity-correct { border-left-color: #495057; }
 
 .commentary-entry .timestamp {
     font-size: 0.75rem;
