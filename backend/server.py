@@ -57,7 +57,7 @@ class Server:
         self._commentary_lock = asyncio.Lock()
         self._tts_lock = asyncio.Lock()
         self._tts_client = None
-        self._tts_voice = os.getenv("COMMENTARY_TTS_VOICE", os.getenv("TTS_VOICE", "alloy"))
+        self._tts_voice = os.getenv("COMMENTARY_TTS_VOICE", os.getenv("TTS_VOICE", "nova"))
         self._tts_model = os.getenv("COMMENTARY_TTS_MODEL", os.getenv("TTS_MODEL", "gpt-4o-mini-tts"))
 
         # Initialize RAG-enhanced chess commentary agent
@@ -1002,6 +1002,7 @@ class Server:
                 model=self._tts_model,
                 voice=self._tts_voice,
                 input=text,
+                speed=1.12,  
             )
         except Exception:
             traceback.print_exc()
