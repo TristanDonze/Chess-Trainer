@@ -197,6 +197,13 @@ class Server:
             lambda client, message: asyncio.create_task(self.handle_theory_question(client, message.content))
             if message.type == "theory-question" else None
         )
+
+        self.socket.on(
+            ServerSocket.EVENTS_TYPES.on_message,
+            "send-analysis-chat",
+            lambda client, message: asyncio.create_task(self.handle_analysis_chat(client, message.content))
+            if message.type == "send-analysis-chat" else None
+        )
     
     async def start_game(self, info):
         """
@@ -543,7 +550,61 @@ class Server:
             "result": "white - " + info["game"]["white"]["result"] if info["game"]["white"]["result"] in ["win", "checkmated"] else "black - " + info["game"]["black"]["result"]
         }
         asyncio.create_task(self.socket.broadcast(protocol.Message(ctn, "game-analyzed").to_json()))
+    
+    async def handle_analysis_chat(self, client, info):
+        """Handle analysis chat messages using the chess agent."""
+        info = info or {}
+        message = (info.get("message") or "").strip()
+        context = (info.get("context") or "").strip()
 
+        if not message:
+            payload = {
+                "error": "Message cannot be empty."
+            }
+            await self.socket.send(client, protocol.Message(payload, "analysis-chat-response"))
+            return
+        
+        question = (
+            f"You are a chess master and coach. You ask the user to rethink about the position: \n"
+            f"Context: {context}\n"
+            f"Here the user message: {message}\n"
+            f"Write a concise, clear, and relevant response to help the user improve their understanding of the position. "
+            "Avoid generic advice; focus on specific plans, tactics, or strategic ideas. "
+            "Do not mention the context or the user's message in your response. "
+            "Keep it under 100 words."
+        )
+        try:
+            async with self._commentary_lock:
+                response = await asyncio.to_thread(
+                    THEORY_ASSISTANT.answer,
+                    question=question,
+                )
+        except RagServiceError:
+            return None
+        except Exception:
+            traceback.print_exc()
+            return None
+
+        if not response:
+            return None
+
+        answer = response.get("answer") if isinstance(response, dict) else None
+        if not answer:
+            return None
+        
+        answer = answer.strip()
+        audio = await self._generate_comment_audio(answer)
+        if audio:
+            payload = {
+                "text": answer,
+                "audio": audio
+            }
+        else:
+            payload = {
+                "text": answer
+            }
+        await self.socket.send(client, protocol.Message(payload, "analysis-chat-response"))
+    
     async def handle_theory_question(self, client, info):
         """Answer a theory question using the OpenAI assistant."""
         info = info or {}

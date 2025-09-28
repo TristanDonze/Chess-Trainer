@@ -400,7 +400,7 @@
         }
 
         timeout = 320;
-        while (current_game.moves[current_turn]?.length > current_move_idx && !current_game.moves[current_turn][move_idx].key_move) {
+        while (current_game.moves[current_turn]?.length > current_move_idx && !current_game.moves[current_turn][current_move_idx].key_move) {
             await new Promise(r => setTimeout(r, timeout));
             timeout = timeout > 20 ? timeout - 20 : 20;
             next_move();
@@ -415,7 +415,6 @@
             return;
         }
         let comment = current_game.moves[current_turn][current_move_idx].comment
-        chat_analysis_context = comment + ""
         let audio = current_game.moves[current_turn][current_move_idx].audio
         if (!pass_first_move) previous_move();
 
@@ -456,7 +455,31 @@
         chat_send_message(message, "user");
         messageElement.querySelector("input").value = "";
 
-        send_message("analysis-chat", {message: message, context: chat_analysis_context})
+        send_message("send-analysis-chat", {message: message, context: chat_analysis_context})
+        wait_for_message("analysis-chat-response", timeout=30000, only_content=true).then((data) => {
+            if (data === null) {
+                Toast.error("No response from analysis chat.");
+                return; // Timeout: error will be return by the server
+            }
+            console.log("Chat response:", data);
+            chat_send_message(data.text || "No response.", "assistant");
+
+            if (data.audio && data.audio.b64 && commentaryAudioEnabled) {
+                const mime = data.audio.mime || 'audio/mpeg';
+                const src = `data:${mime};base64,${data.audio.b64}`;
+                try {
+                    if (commentaryAudioPlayer) {
+                        commentaryAudioPlayer.pause();
+                    }
+                    commentaryAudioPlayer = new Audio(src);
+                    commentaryAudioPlayer.play().catch((error) => {
+                        console.error('Unable to play chat TTS audio during analysis', error);
+                    });
+                } catch (error) {
+                    console.error('Error creating chat TTS audio during analysis', error);
+                }
+            }
+        });
     }
 
     function next_move() {
