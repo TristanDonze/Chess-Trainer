@@ -2,7 +2,9 @@
 import base64
 import math
 import os
+import sys
 import time
+from pathlib import Path
 
 from openai import OpenAI
 
@@ -17,6 +19,17 @@ from src.chess.game import Game
 from src.chess.player import Player
 from models.engine import Engine
 from src.rag import THEORY_ASSISTANT, RagServiceError
+
+# Import the chess agent from misc/rag/src
+misc_rag_path = Path(__file__).parent.parent / "misc" / "rag" / "src"
+if str(misc_rag_path) not in sys.path:
+    sys.path.insert(0, str(misc_rag_path))
+
+try:
+    from chess_agent import get_chess_agent
+except ImportError as e:
+    print(f"Warning: Could not import chess_agent from misc/rag/src: {e}")
+    get_chess_agent = None
 
 import traceback
 import asyncio
@@ -46,6 +59,17 @@ class Server:
         self._tts_client = None
         self._tts_voice = os.getenv("COMMENTARY_TTS_VOICE", os.getenv("TTS_VOICE", "alloy"))
         self._tts_model = os.getenv("COMMENTARY_TTS_MODEL", os.getenv("TTS_MODEL", "gpt-4o-mini-tts"))
+
+        # Initialize RAG-enhanced chess commentary agent
+        try:
+            if get_chess_agent is not None:
+                self.chess_agent = get_chess_agent()
+            else:
+                self.chess_agent = None
+        except Exception as exc:
+            traceback.print_exc()
+            print(f"Warning: Could not initialize chess agent for enhanced commentary: {exc}")
+            self.chess_agent = None
 
         for model in AVAILABLE_MODELS.values():
             try: getattr(model, "__author__")
@@ -194,6 +218,10 @@ class Server:
             "FEN": self.focused_game.fen(),
             "current_player": self.focused_game.board.turn
         }
+        
+        # Update chess agent with initial game state
+        self._update_chess_agent_fen(self.focused_game.fen())
+        
         asyncio.create_task(self.socket.broadcast(protocol.Message(ctn, "game-started").to_json()))
 
         # wait 1s before playing the first move
@@ -270,6 +298,9 @@ class Server:
             move = chess.Move.from_uci(info["start"].lower() + info["end"].lower() + (info.get("promote", "") or "").lower())
             self.focused_game.move(move)
             post_fen = self.focused_game.fen()
+            
+            # Update chess agent with new position
+            self._update_chess_agent_fen(post_fen)
         except Exception as e:
             asyncio.create_task(self.socket.broadcast(protocol.Message(str(e), "error").to_json()))
             traceback.print_exc()
@@ -321,6 +352,10 @@ class Server:
             "to": _to,
             "promote": promote
         }
+        
+        # Update chess agent with new position after AI move
+        self._update_chess_agent_fen(self.focused_game.fen())
+        
         asyncio.create_task(self.socket.broadcast(protocol.Message(ctn, "ai-move").to_json()))
         
         async def play():
@@ -362,6 +397,9 @@ class Server:
         self._reset_player_eval_history()
         self.focused_game = Game()
         self.focused_game.load(info["game"]["pgn"], format="pgn")
+        
+        # Update chess agent with initial position for analysis
+        self._update_chess_agent_fen(self.focused_game.fen())
         
         # 2. analyze the game with stockfish
         if "Stockfish AI" not in AVAILABLE_MODELS:
@@ -487,6 +525,22 @@ class Server:
             traceback.print_exc()
             self.analysis_engine = None
         return self.analysis_engine
+
+    def _update_chess_agent_fen(self, fen: str):
+        """Update the chess agent with current FEN position"""
+        if self.chess_agent:
+            try:
+                self.chess_agent.update_fen_position(fen)
+            except Exception as exc:
+                self._debug_log({"warn": "chess_agent_fen_update_failed", "error": str(exc)})
+
+    def _update_chess_agent_analysis(self, analysis_str: str):
+        """Update the chess agent with current Stockfish analysis"""
+        if self.chess_agent:
+            try:
+                self.chess_agent.update_stockfish_input(analysis_str)
+            except Exception as exc:
+                self._debug_log({"warn": "chess_agent_analysis_update_failed", "error": str(exc)})
 
     def _is_engine_color(self, color):
         if self.focused_game is None:
@@ -849,10 +903,50 @@ class Server:
         return "\n".join(lines)
 
     async def _generate_comment_text(self, analysis):
+        """Generate commentary text using RAG agent when available, fallback to THEORY_ASSISTANT"""
+        # Try RAG agent first if available
+        if self.chess_agent:
+            try:
+                # Update chess agent with current position and analysis
+                current_fen = analysis.get("fen")
+                if current_fen:
+                    self.chess_agent.update_fen_position(current_fen)
+                
+                # Build stockfish analysis summary for the agent
+                color_text = "White" if analysis.get("player_color") == "white" else "Black"
+                move_info = analysis.get("move", {})
+                severity_label = analysis.get("severity_label", "")
+                delta_pawns = analysis.get("player_delta_cp", 0.0) / 100
+                
+                stockfish_summary = f"Move: {color_text} played {move_info.get('san') or move_info.get('uci')} on move {analysis.get('move_number')}. "
+                stockfish_summary += f"Before: {analysis.get('pre_eval_summary')}, After: {analysis.get('post_eval_summary')}. "
+                stockfish_summary += f"Impact: {severity_label}, {delta_pawns:+.2f} pawns change."
+                
+                best_move = analysis.get("best_move")
+                if best_move and not analysis.get("actual_is_best"):
+                    best_label = best_move.get("san") or best_move.get("uci")
+                    stockfish_summary += f" Best move was: {best_label}."
+                
+                self.chess_agent.update_stockfish_input(stockfish_summary)
+                
+                # Use the existing detailed prompt from _build_comment_prompt_for_training_game
+                detailed_prompt = self._build_comment_prompt_for_training_game(analysis)
+                
+                async with self._commentary_lock:
+                    response = await asyncio.to_thread(
+                        self.chess_agent.chat,
+                        detailed_prompt
+                    )
+                return response.strip() if response else None
+            except Exception:
+                traceback.print_exc()
+                # Fall through to THEORY_ASSISTANT backup
+
+        # Fallback to original THEORY_ASSISTANT implementation
         question = self._build_comment_prompt_for_training_game(analysis)
         if not question:
             return None
-
+            
         try:
             async with self._commentary_lock:
                 response = await asyncio.to_thread(
@@ -908,7 +1002,6 @@ class Server:
                 model=self._tts_model,
                 voice=self._tts_voice,
                 input=text,
-                # format="mp3"
             )
         except Exception:
             traceback.print_exc()

@@ -44,11 +44,11 @@ class ChessTrainerAgent:
         self.openai_client = get_openai_client()
         self.context = ConversationContext()
         
-        # Current chess position (FEN notation)
-        self.current_fen = "r3r1k1/ppp2ppp/8/3P4/3KP1b1/6P1/PP2NP2/2R4R w - - 3 23"
+        # Current chess position (FEN notation) - will be updated by server
+        self.current_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"  # Starting position
         
-        # Stockfish input (placeholder for now)
-        self.stockfish_input = "Best move: Rc8+, Evaluation: +2.3"
+        # Stockfish analysis - will be updated by server with real analysis
+        self.stockfish_input = "No analysis available yet"
         
         # Available functions
         self.available_functions = {
