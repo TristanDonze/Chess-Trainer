@@ -19,8 +19,9 @@ except ImportError:  # pragma: no cover - guard for environments without stockfi
 PHASES: Tuple[str, ...] = ("opening", "middlegame", "endgame")
 SEVERITIES: Tuple[str, ...] = ("mistake", "blunder")
 
-MISTAKE_THRESHOLD = -150.0     # ~1.5 pawns
-BLUNDER_THRESHOLD = -300.0     # ~3 pawns
+# Require sizable swings before flagging mistakes/blunders so we only surface the truly costly moves.
+MISTAKE_THRESHOLD = -300.0    # ~3.0 pawns difference versus best move
+BLUNDER_THRESHOLD = -1200.0   # ~12.0 pawns difference versus best move
 
 MATE_SCORE = 10_000.0
 
@@ -29,7 +30,7 @@ class AnalysisError(RuntimeError):
     """Raised when the engine cannot be initialised or an evaluation fails."""
 
 
-@dataclass(slots=True)
+@dataclass
 class Mistake:
     ply: int
     move_number: int
@@ -41,6 +42,10 @@ class Mistake:
     delta: float
     cp_before: float
     cp_after: float
+    cp_best: Optional[float]
+    loss_to_best: Optional[float]
+    loss_to_previous: Optional[float]
+    best_move: Optional[str]
 
 
 def analyze_recent_games(
@@ -132,6 +137,9 @@ def analyze_recent_games(
         for summary in game_summaries
     ]
 
+    mistake_total = aggregate_severity.get("mistake", 0)
+    blunder_total = aggregate_severity.get("blunder", 0)
+
     return {
         "player": username,
         "games_analyzed": len(game_summaries),
@@ -139,6 +147,9 @@ def analyze_recent_games(
         "motif_counts": motif_counts,
         "trend": trend,
         "severity_totals": dict(aggregate_severity),
+        "mistake_count": mistake_total,
+        "blunder_count": blunder_total,
+        "total_errors": mistake_total + blunder_total,
         "games": game_summaries,
     }
 
@@ -216,41 +227,62 @@ def _analyze_single_game(
     for ply_idx, move in enumerate(parsed.mainline_moves(), start=1):
         phase = _phase_for(board, ply_idx)
         board_before = board.copy(stack=False)
+        is_player_move = board.turn == player_color
 
-        if board.turn == player_color:
+        cp_before = cp_after = cp_best = loss_to_best = loss_to_prev = None
+        best_move = None
+        severity = None
+        san = None
+
+        if is_player_move:
             player_moves += 1
             phase_moves[phase] += 1
             san = board.san(move)
-            cp_before = _evaluate_cp(engine, board, player_color)
-
-            board.push(move)
-            cp_after = _evaluate_cp(engine, board, player_color)
-            delta = cp_after - cp_before
-            severity = _classify_severity(delta)
-
-            if severity:
-                motif = _classify_motif(board_before, board, move, player_color, phase, severity)
-                phase_mistakes[phase] += 1
-                severity_counts[severity] += 1
-                motif_counts[motif] += 1
-                mistake = Mistake(
-                    ply=ply_idx,
-                    move_number=board_before.fullmove_number,
-                    san=san,
-                    uci=move.uci(),
-                    severity=severity,
-                    phase=phase,
-                    motif=motif,
-                    delta=round(delta, 1),
-                    cp_before=round(cp_before, 1),
-                    cp_after=round(cp_after, 1),
+            try:
+                cp_before, cp_after, cp_best, loss_to_best, loss_to_prev, best_move = _evaluate_move_deltas(
+                    engine,
+                    board_before,
+                    move,
+                    player_color,
                 )
-                mistake_list.append(_mistake_to_dict(mistake))
-        else:
-            board.push(move)
+            except AnalysisError:
+                cp_before = cp_after = cp_best = loss_to_best = loss_to_prev = None
+                best_move = None
+            else:
+                severity = _classify_severity(loss_to_best, loss_to_prev)
+
+        board.push(move)
+
+        if not is_player_move or not severity:
+            continue
+
+        motif = _classify_motif(board_before, board, move, player_color, phase, severity)
+        phase_mistakes[phase] += 1
+        severity_counts[severity] += 1
+        motif_counts[motif] += 1
+
+        mistake = Mistake(
+            ply=ply_idx,
+            move_number=board_before.fullmove_number,
+            san=san or board_before.san(move),
+            uci=move.uci(),
+            severity=severity,
+            phase=phase,
+            motif=motif,
+            delta=round((loss_to_prev or 0.0), 1),
+            cp_before=round((cp_before or 0.0), 1),
+            cp_after=round((cp_after or 0.0), 1),
+            cp_best=round(cp_best, 1) if cp_best is not None else None,
+            loss_to_best=round(loss_to_best, 1) if loss_to_best is not None else None,
+            loss_to_previous=round(loss_to_prev, 1) if loss_to_prev is not None else None,
+            best_move=best_move.uci().upper() if best_move else None,
+        )
+        mistake_list.append(_mistake_to_dict(mistake))
 
     total_mistakes = sum(severity_counts.values())
     mistake_rate = (total_mistakes / player_moves) if player_moves else 0.0
+    mistake_count = severity_counts.get("mistake", 0)
+    blunder_count = severity_counts.get("blunder", 0)
 
     summary: Dict[str, object] = {
         "url": game_info.get("url"),
@@ -263,6 +295,8 @@ def _analyze_single_game(
         "mistakes": {
             "total": total_mistakes,
             "rate": round(mistake_rate, 3),
+            "mistake_count": mistake_count,
+            "blunder_count": blunder_count,
             "by_phase": phase_mistakes,
             "by_severity": {severity: severity_counts.get(severity, 0) for severity in SEVERITIES},
         },
@@ -292,6 +326,10 @@ def _mistake_to_dict(mistake: Mistake) -> Dict[str, object]:
         "delta": mistake.delta,
         "cp_before": mistake.cp_before,
         "cp_after": mistake.cp_after,
+        "cp_best": mistake.cp_best,
+        "loss_to_best": mistake.loss_to_best,
+        "loss_to_previous": mistake.loss_to_previous,
+        "best_move": mistake.best_move,
     }
 
 
@@ -386,8 +424,67 @@ def _evaluate_cp(engine: Stockfish, board: chess.Board, player_color: chess.Colo
         score = -score
     return score
 
+def _find_best_move(engine: Stockfish, board: chess.Board) -> Optional[chess.Move]:
+    try:
+        engine.set_fen_position(board.fen())
+        best_uci = engine.get_best_move()
+    except Exception:
+        return None
 
-def _classify_severity(delta: float) -> Optional[str]:
+    if not best_uci:
+        return None
+
+    try:
+        return chess.Move.from_uci(best_uci)
+    except ValueError:
+        return None
+
+
+def _evaluate_move_deltas(
+    engine: Stockfish,
+    board_before: chess.Board,
+    move: chess.Move,
+    player_color: chess.Color,
+) -> Tuple[float, float, Optional[float], Optional[float], float, Optional[chess.Move]]:
+    cp_before = _evaluate_cp(engine, board_before, player_color)
+
+    board_after = board_before.copy(stack=False)
+    board_after.push(move)
+    cp_after = _evaluate_cp(engine, board_after, player_color)
+
+    best_move = _find_best_move(engine, board_before)
+    cp_best: Optional[float] = None
+    if best_move is not None:
+        board_best = board_before.copy(stack=False)
+        try:
+            board_best.push(best_move)
+        except Exception:
+            best_move = None
+        else:
+            cp_best = _evaluate_cp(engine, board_best, player_color)
+
+    loss_to_best: Optional[float] = None
+    if cp_best is not None:
+        loss_to_best = cp_after - cp_best
+
+    loss_to_prev = cp_after - cp_before
+
+    return cp_before, cp_after, cp_best, loss_to_best, loss_to_prev, best_move
+
+
+def _classify_severity(
+    loss_to_best: Optional[float],
+    loss_to_prev: Optional[float],
+) -> Optional[str]:
+    if loss_to_best is not None:
+        delta = loss_to_best
+    elif loss_to_prev is not None:
+        delta = loss_to_prev
+    else:
+        return None
+
+    if delta >= 0:
+        return None
     if delta <= BLUNDER_THRESHOLD:
         return "blunder"
     if delta <= MISTAKE_THRESHOLD:

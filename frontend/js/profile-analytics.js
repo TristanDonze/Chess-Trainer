@@ -20,11 +20,10 @@
         const phaseRoot = container.querySelector('[data-phase-cards]');
         const trendRoot = container.querySelector('[data-trend-chart]');
         const motifRoot = container.querySelector('[data-motif-list]');
-        const gamesRoot = container.querySelector('[data-games-summary]');
         const summaryRoot = container.querySelector('[data-analysis-summary]');
         const message = container.querySelector('[data-analysis-message]');
 
-        [phaseRoot, trendRoot, motifRoot, gamesRoot, summaryRoot].forEach((node) => {
+        [phaseRoot, trendRoot, motifRoot, summaryRoot].forEach((node) => {
             if (node) node.innerHTML = '';
         });
 
@@ -44,22 +43,20 @@
         if (phaseRoot) renderPhaseCards(phaseRoot, analysis.phase_breakdown);
         if (trendRoot) renderTrendChart(trendRoot, analysis.trend || []);
         if (motifRoot) renderMotifs(motifRoot, analysis.motif_counts || []);
-        if (gamesRoot) renderGames(gamesRoot, analysis.games || []);
     }
 
     function renderSummary(root, analysis) {
         const { games_analyzed = 0, severity_totals = {} } = analysis;
-        const totalMistakes = analysis.games?.reduce((acc, game) => acc + (game.mistakes?.total || 0), 0) || 0;
+        const mistakes = severity_totals.mistake || 0;
+        const blunders = severity_totals.blunder || 0;
+        const totalErrors = mistakes + blunders;
 
         const chips = [
             { label: 'Games', value: games_analyzed },
-            { label: 'Mistakes', value: totalMistakes },
+            { label: 'Mistakes', value: mistakes },
+            { label: 'Blunders', value: blunders },
+            { label: 'Total Errors', value: totalErrors },
         ];
-        ['blunder', 'mistake'].forEach((key) => {
-            if (severity_totals[key]) {
-                chips.push({ label: capitalize(key), value: severity_totals[key] });
-            }
-        });
 
         chips.forEach((chip) => {
             const el = document.createElement('span');
@@ -232,73 +229,6 @@
             wrapper.appendChild(header);
             wrapper.appendChild(bar);
             root.appendChild(wrapper);
-        });
-    }
-
-    function renderGames(root, games) {
-        if (!games.length) {
-            const msg = document.createElement('p');
-            msg.className = 'analysis-empty-state';
-            msg.textContent = 'No game summaries available yet.';
-            root.appendChild(msg);
-            return;
-        }
-
-        const recent = games.slice(-5).reverse();
-        recent.forEach((game) => {
-            const item = document.createElement('article');
-            item.className = 'analysis-game';
-
-            const top = document.createElement('div');
-            top.className = 'analysis-game-top';
-            const title = document.createElement('span');
-            title.className = 'analysis-game-title';
-            title.textContent = `${game.color === 'white' ? 'White' : 'Black'} vs ${game.opponent || 'Opponent'}`;
-            top.appendChild(title);
-
-            const badge = document.createElement('span');
-            badge.className = `analysis-game-result ${RESULT_TAGS[game.result] || 'result-unknown'}`;
-            badge.textContent = capitalize(game.result || 'Unknown');
-            top.appendChild(badge);
-            item.appendChild(top);
-
-            const stats = document.createElement('div');
-            stats.className = 'analysis-game-stats';
-            const blunders = game.mistakes?.by_severity?.blunder || 0;
-            const mistakes = game.mistakes?.by_severity?.mistake || 0;
-            stats.innerHTML = `
-                <span><strong>${game.mistakes?.total || 0}</strong> total</span>
-                <span>${blunders} blunders</span>
-                <span>${mistakes} mistakes</span>
-            `;
-            item.appendChild(stats);
-
-            const phaseRow = document.createElement('div');
-            phaseRow.className = 'analysis-game-phases';
-            ['opening', 'middlegame', 'endgame'].forEach((phase) => {
-                const breakdown = game.mistakes?.by_phase?.[phase] || 0;
-                if (breakdown) {
-                    const tag = document.createElement('span');
-                    tag.className = 'phase-tag';
-                    tag.textContent = `${capitalize(phase)}: ${breakdown}`;
-                    phaseRow.appendChild(tag);
-                }
-            });
-            if (phaseRow.childElementCount) {
-                item.appendChild(phaseRow);
-            }
-
-            if (game.url) {
-                const link = document.createElement('a');
-                link.className = 'analysis-game-link';
-                link.href = game.url;
-                link.target = '_blank';
-                link.rel = 'noopener';
-                link.textContent = 'View game';
-                item.appendChild(link);
-            }
-
-            root.appendChild(item);
         });
     }
 
