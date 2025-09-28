@@ -1,26 +1,12 @@
-/* ==========================================================================
-   CORRECTIONS APPLIQUÉES :
-   1. html, body: Remplacé `height` par `min-height` et supprimé `overflow: hidden`.
-      Cela permet à la page de faire au moins 100% de la hauteur, mais aussi de grandir
-      et d'afficher une barre de défilement si nécessaire, au lieu de couper le contenu.
-   2. main: La hauteur a été retirée. Elle est maintenant gérée par la flexibilité
-      du body et le contenu lui-même. C'est beaucoup plus fiable.
-   ========================================================================== */
-
 html, body {
-  /* MODIFIÉ: On s'assure que le body prend au moins toute la hauteur de l'écran,
-     mais on l'autorise à grandir si le contenu est plus grand. C'est la correction principale. */
   min-height: 100svh;
   margin: 0;
   padding: 0;
-  /* L'ancien `overflow: hidden;` a été supprimé pour permettre le défilement si besoin. */
 }
 
 main {
-  width: calc(100% - 40px); /* 40px pour laisser 20px de marge de chaque côté */
+  width: calc(100% - 40px);
   margin: 20px auto;
-  /* MODIFIÉ: La hauteur fixe a été enlevée. La hauteur s'adaptera au contenu. */
-  /* height: calc(100svh - 80px); <-- Supprimé car trop rigide */
   display: grid;
   grid-template-columns: auto 1fr;
   gap: clamp(0.75rem, 2vw, 1.25rem);
@@ -41,8 +27,7 @@ nav {
   justify-content: center;
   box-shadow: var(--shadow-md);
   position: sticky;
-  top: 20px; /* Aligné avec la marge de 'main' */
-  /* On s'assure que la nav ne dépasse pas la hauteur de la fenêtre moins les marges */
+  top: 20px; 
   max-height: calc(100svh - 40px);
 }
 
@@ -85,17 +70,16 @@ nav > a.current {
 }
 
 .page-wrapper {
-    background: var(--surface-elevated);
-    border-radius: clamp(28px, 4vw, 36px);
-    border: 1px solid var(--border-color);
-    box-shadow: var(--shadow-lg);
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) clamp(280px, 30vw, 360px);
-    gap: clamp(2rem, 4vw, 3rem);
-    padding: clamp(1.8rem, 3vw, 2.6rem);
-    position: relative;
-    overflow: hidden;
+  background: var(--surface-elevated);
+  display: grid;
+  grid-template-columns: 60% 40%;
+  gap: clamp(1rem, 2vw, 1.5rem);
+  position: relative;
+  
+  height: 100%;
+  overflow: hidden;
 }
+
 
 .page-wrapper::before {
     content: "";
@@ -108,10 +92,10 @@ nav > a.current {
 
 .chessboard-wrapper {
     background: rgba(13, 21, 36, 0.65);
-    border-radius: 18px;
+    border-radius: clamp(24px, 4vw, 32px);
     border: 1px solid rgba(148, 163, 184, 0.22);
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 28px 48px rgba(8, 11, 25, 0.45);
-    padding: 20px;
+    padding: clamp(1.6rem, 3vw, 2.4rem);
     display: flex;
     flex-direction: column;
     gap: clamp(1.4rem, 3vw, 2rem);
@@ -134,7 +118,7 @@ nav > a.current {
 
 .chessboard-wrapper svg {
   width: 100%;
-  height: auto; /* L'aspect-ratio s'en occupe */
+  height: auto; 
   aspect-ratio: 1 / 1;
   filter: drop-shadow(0 24px 40px rgba(8, 11, 25, 0.55));
   border-radius: clamp(18px, 3vw, 24px);
@@ -142,20 +126,14 @@ nav > a.current {
 }
 
 
-.chessboard-wrapper .actions {
-    aspect-ratio: 1 / 1;
-    height: 90%;
-}
 .chessboard-wrapper .actions,
 .chessboard-wrapper .game-tools {
-    width: fit-content;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-direction: row;
-    gap: 8px;
-    padding: 4px;
-    border-radius: 8px;
+    width: min(520px, 90%);
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(52px, 1fr));
+    gap: 0.85rem;
+    padding: 0.85rem;
+    border-radius: clamp(18px, 3vw, 22px);
     background: rgba(12, 18, 33, 0.7);
     border: 1px solid rgba(148, 163, 184, 0.18);
     backdrop-filter: blur(12px);
@@ -167,9 +145,9 @@ nav > a.current {
 }
 
 .chessboard-wrapper button.material-symbols-outlined {
-    width: 20px;
+    width: 100%;
     aspect-ratio: 1;
-    border-radius: 12px;
+    border-radius: clamp(16px, 2.8vw, 20px);
     background: rgba(30, 43, 74, 0.85);
     border: 1px solid rgba(148, 163, 184, 0.3);
     color: var(--text-white-color);
@@ -187,7 +165,7 @@ nav > a.current {
 
 .interaction-wrapper {
     display: grid;
-    grid-template-rows: 1fr auto; /* Inversé pour que le chat prenne l'espace et les actions en bas */
+    grid-template-rows: 1fr auto; 
     gap: clamp(1.4rem, 3vw, 2rem);
     background: rgba(12, 19, 33, 0.72);
     border-radius: clamp(24px, 3.5vw, 30px);
@@ -195,7 +173,7 @@ nav > a.current {
     padding: clamp(1.4rem, 3vw, 2rem);
     position: relative;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-    /* Permet aux enfants de ne pas déborder */
+    
     min-height: 0;
     min-width: 0;
 }
@@ -205,7 +183,7 @@ nav > a.current {
     flex-direction: column;
     gap: clamp(1rem, 2.5vw, 1.6rem);
     position: relative;
-    min-height: 0; /* Important pour le scroll interne */
+    min-height: 0; 
 }
 
 .messages-wrapper {
@@ -249,7 +227,6 @@ nav > a.current {
     background: transparent;
     padding: 0;
     color: var(--text-white-color);
-    box-shadow: none !important;
 }
 
 .send-message-wrapper input::placeholder {
@@ -298,7 +275,7 @@ nav > a.current {
     box-shadow: 0 12px 26px rgba(251, 191, 36, 0.25);
 }
 
-/* --- Le reste du CSS reste inchangé --- */
+
 .commentary-entry { background: rgba(10, 15, 26, 0.75); border: 1px solid rgba(148, 163, 184, 0.18); border-left-width: 4px; border-radius: 16px; padding: 1rem 1.2rem; display: flex; flex-direction: column; gap: 0.55rem; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04); }
 .commentary-entry .commentary-heading { display: flex; justify-content: space-between; align-items: baseline; font-weight: 600; color: var(--text-white-color); gap: 0.75rem; }
 .commentary-entry .commentary-heading .move { font-size: 0.9rem; color: rgba(226, 232, 240, 0.65); }
@@ -332,14 +309,14 @@ nav > a.current {
 .game-block .date { font-size: 0.95em; }
 
 
-/* --- MEDIA QUERIES --- */
 
-/* Tablet et mobile */
+
+
 @media (max-width: 1240px) {
     main {
         grid-template-columns: 1fr;
         justify-items: center;
-        width: calc(100% - 20px); /* Moins de marge sur petits écrans */
+        width: calc(100% - 20px); 
         margin: 10px auto;
     }
 
@@ -354,7 +331,7 @@ nav > a.current {
 
     .page-wrapper {
         grid-template-columns: minmax(0, 1fr);
-        height: auto; /* La hauteur s'adapte au contenu */
+        height: auto; 
     }
 
     .interaction-wrapper {
@@ -389,7 +366,7 @@ nav > a.current {
     main {
       width: 100%;
       margin: 0;
-      padding: 10px; /* Un peu d'air sur les bords */
+      padding: 10px; 
       box-sizing: border-box;
     }
     .game-block {
@@ -400,23 +377,23 @@ nav > a.current {
     .game-block .meta { grid-column: 2 / 3; justify-self: end; }
 }
 
-/* Desktop - Le layout split-screen est maintenu mais plus robuste */
+
 @media (min-width: 1241px) {
 
   main {
-    /* Sur grand écran, on veut que main prenne toute la hauteur disponible après les marges */
+    
     height: calc(100svh - 40px);
   }
 
-  /* Chaque panneau remplit la hauteur */
+  
   .chessboard-wrapper,
   .interaction-wrapper {
     height: 100%;
-    min-height: 0; /* Très important pour que le contenu interne puisse scroller */
+    min-height: 0; 
   }
 
   .chessboard-wrapper {
-    display: flex; /* Flex est plus simple pour centrer le contenu verticalement */
+    display: flex; 
     flex-direction: column;
     justify-content: center;
     gap: clamp(1rem, 2.2vw, 1.8rem);
@@ -425,9 +402,9 @@ nav > a.current {
   
   .chessboard-wrapper svg {
     width: 100%;
-    height: auto; /* L'aspect ratio définit la hauteur */
+    height: auto; 
     max-width: 100%;
-    max-height: 100%; /* Ne pas dépasser son conteneur */
+    max-height: 100%; 
   }
 
   .interaction-wrapper {
