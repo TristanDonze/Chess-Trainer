@@ -51,6 +51,8 @@ class Server:
         self.client_pseudo = None
         self.client_profil = None
 
+        self.last_moved_piece = None
+
         self.focused_game = None
         self.analysis_engine = None
         self._reset_player_eval_history()
@@ -249,6 +251,7 @@ class Server:
         # wait 1s before playing the first move
         await asyncio.sleep(0.8)
         self.focused_game.play_engine_move()
+        self.last_moved_piece = None
 
     # def get_evaluators_list(self):
     #     """
@@ -318,6 +321,7 @@ class Server:
             player_color = self.focused_game.board.turn
             move_number = self.focused_game.board.fullmove_number
             move = chess.Move.from_uci(info["start"].lower() + info["end"].lower() + (info.get("promote", "") or "").lower())
+            piece = self.focused_game.get_piece(info["start"])
             self.focused_game.move(move)
             post_fen = self.focused_game.fen()
             
@@ -349,7 +353,12 @@ class Server:
             )
 
         async def play():
-            self.focused_game.play_engine_move()
+            move, piece = self.focused_game.play_engine_move()
+            self.last_moved_piece = {
+                "piece": piece.symbol(),
+                "from": chess.square_name(move.from_square).upper(),
+                "to": chess.square_name(move.to_square).upper()
+            }
         asyncio.create_task(play())
 
     def ia_move_handler(self, move: chess.Move):
@@ -1199,11 +1208,11 @@ class Server:
         move_info = analysis.get("move", {})
         severity_label = analysis.get("severity_label", "")
         delta_pawns = analysis.get("player_delta_cp", 0.0) / 100
-
+        take_our_piece = self.last_moved_piece['to'] == move_info.get('to') if self.last_moved_piece else False
         lines = [
-            f"We are analyzing a live chess game. {color_text} just played {move_info.get('san') or move_info.get('uci')} ({move_info.get('uci')}) on move {analysis.get('move_number')}.",
+            f"We are analyzing a live chess game. {color_text} just played {move_info.get('san')} (uci: {move_info.get('uci')}) on move {analysis.get('move_number')}.",
             f"Before the move, Stockfish evaluation was {analysis.get('pre_eval_summary')}. After the move it is {analysis.get('post_eval_summary')}.",
-            f"This changed {color_text}'s evaluation by {delta_pawns:+.2f} pawns ({severity_label}).",
+            f"This changed {color_text}'s evaluation by {delta_pawns:+.2f} pawns ({severity_label}). The move played before by the opponent was {self.last_moved_piece['piece']} (from: {self.last_moved_piece['from']}, to: {self.last_moved_piece['to']}) { 'and took player piece' if take_our_piece else ''}.",
             f"Don't use 'OR' to describe impact of the move, it's look like you are not sure about the impact.",
             "Don't use general phrases like 'This move is good' or 'There is threat', or 'a critical vulnerability', explain and describe concretely the threat, the tactic, the plan, the idea, the strategy, the positional or material gain or loss, etc.",
             f"Your task is to provide concise, clear, constructive, interesting and natural chess commentary to help the player understand their move and improve their skills.",

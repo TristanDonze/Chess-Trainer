@@ -72,6 +72,7 @@ class Game:
 
         self._update_game_state()
 
+    
     def reverse(self):
         """
         Return a new instance of Game with the exact reversed position.
@@ -150,6 +151,7 @@ class Game:
         self.winner = self.last_player
         return self
 
+       
     def load(self, data, format="fen"):
         """
         Load a game from a string.
@@ -210,9 +212,11 @@ class Game:
         if move is None: # surrender
             raise Exception("No legal moves")
         
+        piece = self.get_piece(move.from_square)
         self.move(move)
 
         if self.ia_move_handler is not None: self.ia_move_handler(move)
+        return move, piece
 
     def one_hot(self):
         """ Converts the chess board to a 8x8x12 one-hot encoded representation. """
