@@ -36,10 +36,6 @@
                 </div>
                 <svg id="board">
                 </svg>
-                <div id="key-move-indicator" style="text-align:center; font-weight:bold; color:black; margin-top:8px;">
-                    Key move
-                </div>
-
 
                 <div class="game-tools">
                     <button class="material-symbols-outlined" title="Previous move" onclick="previous_move()">skip_previous</button>
@@ -87,6 +83,15 @@
     const commentaryHistory = [];
     let commentaryAudioEnabled = true;
     let commentaryAudioPlayer = null;
+
+    const nextButton = document.querySelector('.next.btn');
+
+    function setNextButtonVisible(visible) {
+        if (!nextButton) return;
+        nextButton.style.display = visible ? '' : 'none';
+    }
+
+    setNextButtonVisible(false);
 
     function setCommentaryAudio(enabled) {
         commentaryAudioEnabled = enabled;
@@ -208,6 +213,7 @@
         const svg = d3.select("#board");
         svg.selectAll("*").remove();
         svg.classed("active", true);
+        setNextButtonVisible(false);
         // draw_game("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
         // update_game_state("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
         // new Audio('../media/game-start.mp3').play();
@@ -375,6 +381,7 @@
 
     async function start_game_analysis() {
         if (!is_game_analysis || !current_game) return;
+        setNextButtonVisible(true);
         chat_clear_messages();
         chat_send_message("Let's analyze this game together!", "assistant");
         move_idx = 0;
@@ -459,13 +466,6 @@
             }
 
             draw_from_fen(current_game.moves[current_turn][current_move_idx].fen);
-
-            const indicator = document.getElementById("key-move-indicator");
-            if (current_game.moves[current_turn][current_move_idx].key_move) {
-                indicator.style.color = "red";
-            } else {
-                indicator.style.color = "black";
-            }
 
             if (current_game.moves[current_turn][current_move_idx].king_in_check) {
                 new Audio('../media/move-check.mp3').play();
