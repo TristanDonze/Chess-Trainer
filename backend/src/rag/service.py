@@ -27,6 +27,105 @@ class RetrievedChunk:
     url: Optional[str]
 
 
+# ---------- helpers: split + parse ----------
+_INSTR_SPLIT_RE   = re.compile(r'^\s*&{2,}\s*INSTRUCTIONS\s*&{2,}\s*$', re.IGNORECASE | re.MULTILINE)
+_INSTR_FEN_RE     = re.compile(r'^\s*FEN:\s*(.*?)\s*(?:#.*)?$', re.IGNORECASE | re.MULTILINE)
+_INSTR_MOVES_RE   = re.compile(r'^\s*MOVE\s+INDICATION:\s*(.*?)\s*(?:#.*)?$', re.IGNORECASE | re.MULTILINE)
+_INSTR_RED_RE     = re.compile(r'^\s*RED\s+SQUARES:\s*(.*?)\s*(?:#.*)?$', re.IGNORECASE | re.MULTILINE)
+_INSTR_GREEN_RE   = re.compile(r'^\s*GREEN\s+SQUARES:\s*(.*?)\s*(?:#.*)?$', re.IGNORECASE | re.MULTILINE)   
+
+
+def _split_text_and_instructions(text: str) -> tuple[str, str | None]:
+    m = _INSTR_SPLIT_RE.search(text)
+    if not m:
+        return text.strip(), None
+    main = text[:m.start()].rstrip()
+    instr = text[m.end():].strip()
+    return main, instr
+
+def _is_valid_fen(fen: str) -> bool:
+    try:
+        chess.Board(fen)
+        return True
+    except Exception:
+        return False
+
+def _parse_instruction_block(instr: str | None) -> dict:
+    if not instr:
+        return {'fen': None, 'moves': [], 'red_squares': []}
+
+    fen = None
+    m = _INSTR_FEN_RE.search(instr)
+    if m:
+        cand = (m.group(1) or '').strip()
+        if cand and _is_valid_fen(cand):
+            fen = cand
+
+    moves: list[str] = []
+    m = _INSTR_MOVES_RE.search(instr)
+    if m:
+        raw = (m.group(1) or '').strip().lower()
+        if raw:
+            for tok in re.split(r'[;\s,]+', raw):
+                tok = tok.strip()
+                if tok and re.fullmatch(r'[a-h][1-8][a-h][1-8][qrbn]?$', tok):
+                    moves.append(tok)
+
+    reds: list[str] = []
+    m = _INSTR_RED_RE.search(instr)
+    if m:
+        raw = (m.group(1) or '').strip().lower()
+        if raw:
+            for tok in re.split(r'[;\s,]+', raw):
+                if tok in chess.SQUARE_NAMES:
+                    reds.append(tok)
+
+    greens: list[str] = []
+    m = _INSTR_GREEN_RE.search(instr)
+    if m:
+        raw = (m.group(1) or '').strip().lower()
+        if raw:
+            for tok in re.split(r'[;\s,]+', raw):
+                if tok in chess.SQUARE_NAMES:
+                    greens.append(tok)
+
+    return {'fen': fen, 'moves': moves, 'red_squares': reds, 'green_squares': greens}
+
+# --- replace this helper ---
+def _move_dict(move_obj: chess.Move, board: chess.Board) -> dict:
+    return {
+        "uci": move_obj.uci().upper(),
+        "san": board.san(move_obj),
+        "from": chess.square_name(move_obj.from_square).upper(),
+        "to": chess.square_name(move_obj.to_square).upper(),
+        "promotion": chess.piece_symbol(move_obj.promotion).upper() if move_obj.promotion else None,
+    }
+
+# --- with this legality-agnostic arrow builder ---
+def _arrow_from_uci(uci: str, fen: Optional[str]) -> dict:
+    u = (uci or "").strip().lower()
+    frm = u[:2].upper() if len(u) >= 4 else None
+    to  = u[2:4].upper() if len(u) >= 4 else None
+    promo = u[4].upper() if len(u) == 5 else None
+
+    san = None
+    if fen and len(u) >= 4 and frm and to:
+        try:
+            board = chess.Board(fen)
+            mv = chess.Move.from_uci(u)
+            if mv in board.legal_moves:
+                san = board.san(mv)
+        except Exception:
+            pass
+
+    return {
+        "uci": u.upper(),
+        "san": san,          # None if not legal/unknown
+        "from": frm,
+        "to": to,
+        "promotion": promo,
+    }
+
 class TheoryAssistant:
     """Thin wrapper around Weaviate + OpenAI to answer chess theory questions."""
 
@@ -122,20 +221,39 @@ class TheoryAssistant:
 
     def _build_prompt(self, question: str, fen: Optional[str], context: List[RetrievedChunk]) -> List[Dict[str, Any]]:
         system_instructions = (
-            "You are a chess coach. Combine the current board state and retrieved knowledge "
-            "to provide practical, trustworthy advice. Always verify tactical claims, "
-            "mention critical variations in algebraic notation, and cite any referenced sources."
-            "If no position is given, focus on theory advice, you can use move recommandation or showcase (or both) to make it more lisible."
-            "If a board position (FEN) is supplied, include an explicit move recommendation in UCI notation"
-            "on a dedicated line formatted exactly as:"
-            "'Recommended move (UCI): <move_uci>'."
-            "To showcase a position (like for an example, with fen notation) use exactly the following format:"
-            "'Suggested position (FEN): <fen>'."
-            "Even if the user doesn't ask for showcase or move, you can still provide them if relevant. (it can really help the user to understand). Though, never propose to showcase, do it directly."
-            "If you give showcase FEN or move recommandation, directly add them at the end of your answer without context (they will be parsed)."
-            "Always answer in English."
+            "You are a chess coach. Give really concise, practical advice. Verify all tactical claims. "
 
+            "FEN POLICY (IMPORTANT):\n"
+            "- You SHOULD create a correct FEN (not empty) that answers the question, it MUST be legal and logical.\n"
+            "- If you are talking about a specific position you MUST provide a FEN .\n"
+            "- Only place the FEN in the INSTRUCTIONS block; NEVER mention or display FEN in the main answer.\n"
+
+            "ARROW / MOVE POLICY (PRIMARY):\n"
+            "- In the INSTRUCTIONS block, use UCI coordinates (lowercase, e.g., e2e5, g2b7) to draw ARROWS that depict plans, attacks, lines, or piece trajectories.\n"
+            "- Arrows DO NOT need to be legal moves; they are descriptive. Use maximum 3 arrows \n"
+            "- Use arrows to convey ideas (for instance, to describe 'Fianchetto' do an arrow along the whole diagonal: g2a8).\n"
+            "- List multiple arrows separated by ';'. Do NOT include SAN or comments in this field.\n\n"
+
+            "HIGHLIGHT POLICY (SECONDARY):\n"
+            "- Prefer arrows over colored squares. Only use colored squares if arrows are insufficient.\n"
+            "- Use at most 1-2 colored squares total and try to avoid using them. Avoid highlighting irrelevant squares.\n"
+            "- RED SQUARES use lowercase coordinates (e.g., 'e4;f7'). In the main answer (not in the block), briefly explain your color coding.\n\n"
+
+            "OUTPUT FORMAT (MANDATORY, MACHINE-PARSABLE TAIL):\n"
+            "At the very END of your answer, output EXACTLY ONE block with this header and the four lines below, with no extra lines, quotes, or code fences. "
+            "Fields may be empty after the colon. Do NOT add any text after this block.\n"
+            "&&&&&& INSTRUCTIONS &&&&&&\n"
+            "FEN: <fen>\n"
+            "MOVE INDICATION: <uci1;uci2;... or empty>\n"
+            "RED SQUARES: <empty or sq1>\n"
+
+            "GENERAL CONTENT:\n"
+            "- If no position is given, teach thematic plans and typical tactics; you should provide an illustrative FEN (in the block).\n"
+            "- If a FEN is given, prioritize concrete calculation with one main line and one critical alternative in SAN in the main text.\n"
+            "- Keep evaluations qualitative.\n"
+            "- Use only standard ASCII characters in the INSTRUCTIONS block and do not mention the block in the main text."
         )
+
 
         context_lines: List[str] = []
         if fen:
@@ -178,7 +296,6 @@ class TheoryAssistant:
             try:
                 context = self._retrieve_context(question_clean)
             except RagServiceError:
-                # If retrieval fails, proceed with empty context after recording the problem.
                 context = []
 
         messages = self._build_prompt(question_clean, fen, context)
@@ -186,45 +303,70 @@ class TheoryAssistant:
         client = self._ensure_openai()
         try:
             response = client.responses.create(model=self._model, input=messages)
-        except Exception as exc:  # pragma: no cover - network path
+        except Exception as exc:  # pragma: no cover
             raise RagServiceError(f"OpenAI response failed: {exc}") from exc
 
         output_text = getattr(response, "output_text", None)
         if not output_text:
             raise RagServiceError("OpenAI returned an empty response")
 
+        # Split main text vs INSTRUCTIONS block
+        main_text, instr_block = _split_text_and_instructions(output_text)
+        print(instr_block)
         references: List[Dict[str, Optional[str]]] = []
         if context:
             for idx, chunk in enumerate(context, start=1):
-                references.append(
-                    {
-                        "label": f"[{idx}] {chunk.title}" if chunk.title else f"Source [{idx}]",
-                        "source": chunk.source,
-                        "url": chunk.url,
-                    }
-                )
-        recommended_move: Optional[Dict[str, Any]] = None
-        recommended_move = self._extract_recommended_move(output_text, fen)
+                references.append({
+                    "label": f"[{idx}] {chunk.title}" if chunk.title else f"Source [{idx}]",
+                    "source": chunk.source,
+                    "url": chunk.url,
+                })
 
-        if not recommended_move:
-            recommended_move = {"uci": "N/A", "san": "N/A", "from": "N/A", "to": "N/A", "promotion": "N/A"}
+        # Parse INSTRUCTIONS (FEN, moves[], red_squares[])
+        parsed = _parse_instruction_block(instr_block)
+        instr_fen   = parsed.get('fen')
+        raw_moves   = parsed.get('moves', [])
+        red_squares = parsed.get('red_squares', [])
+        green_squares = parsed.get('green_squares', [])
 
-        showcase_position: Optional[str] = None
-        fen_match = re.search(r"Suggested position \(FEN\):\s*([^\s]+)", output_text)
-        if fen_match:
-            showcase_position = fen_match.group(1).strip()
-        if showcase_position:
-            recommended_move["showcase_fen"] = showcase_position
+        effective_fen = instr_fen or fen
+
+        # Validate all explicit UCIs against the effective FEN
+        move_dicts: list[dict] = []
+        if raw_moves:
+            move_dicts = [_arrow_from_uci(u, effective_fen) for u in raw_moves]
+        elif effective_fen:
+            # Fallback: if the model didn't provide arrows, try extracting one legal recommendation from text
+            fb = self._extract_recommended_move(output_text, effective_fen)
+            if fb:
+                move_dicts = [fb]
+
+        # Back-compat: accept old 'Suggested position (FEN): ...' if no instr FEN
+        showcase_fen = instr_fen
+        if not showcase_fen:
+            m_old = re.search(r"Suggested position \(FEN\):\s*([^\s]+)", output_text)
+            if m_old:
+                cand = m_old.group(1).strip()
+                if _is_valid_fen(cand):
+                    showcase_fen = cand
+
+        instructions = {
+            "showcase_fen": showcase_fen,     # str | None
+            "red_squares": red_squares,       # list[str]
+            "green_squares": green_squares,   # list[str]
+            "moves": move_dicts,              # list[dict], can be empty
+        }
 
         return {
             "id": request_id,
-            "answer": output_text.strip(),
+            "answer": main_text.strip(),   # instructions block removed from the human text
             "references": references,
-            "recommended_move": recommended_move,
+            "instructions": instructions,
         }
 
-    def _extract_recommended_move(self, text: str, fen: str) -> Optional[Dict[str, Any]]:
-        """Extract and validate a move recommendation from model output."""
+    def _extract_recommended_move(self, text: str, fen: Optional[str]) -> Optional[Dict[str, Any]]:
+        if not fen:
+            return None
         try:
             board = chess.Board(fen)
         except Exception:
@@ -235,29 +377,25 @@ class TheoryAssistant:
 
         if move_uci:
             try:
-                move = chess.Move.from_uci(move_uci)
+                mv = chess.Move.from_uci(move_uci)
             except ValueError:
-                move = None
-            if move and move in board.legal_moves:
-                move_obj = move
+                mv = None
+            if mv and mv in board.legal_moves:
+                move_obj = mv
 
         if move_obj is None:
             move_obj = self._find_san_move(text, board)
-
         if move_obj is None:
             return None
 
-        best_move_san = board.san(move_obj)
-        promotion = chess.piece_symbol(move_obj.promotion).upper() if move_obj.promotion else None
-
         return {
             "uci": move_obj.uci().upper(),
-            "san": best_move_san,
+            "san": board.san(move_obj),
             "from": chess.square_name(move_obj.from_square).upper(),
             "to": chess.square_name(move_obj.to_square).upper(),
-            "promotion": promotion,
+            "promotion": chess.piece_symbol(move_obj.promotion).upper() if move_obj.promotion else None,
         }
-
+    
     @staticmethod
     def _find_uci_move(text: str, board: chess.Board) -> Optional[str]:
         pattern = re.compile(r"\b([a-h][1-8][a-h][1-8][qrbn]?)\b", re.IGNORECASE)
