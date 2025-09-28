@@ -200,9 +200,23 @@ class Server:
 
         self.socket.on(
             ServerSocket.EVENTS_TYPES.on_message,
+            "theory-question-audio",
+            lambda client, message: asyncio.create_task(self.handle_theory_question_audio(client, message.content))
+            if message.type == "theory-question-audio" else None
+        )
+
+        self.socket.on(
+            ServerSocket.EVENTS_TYPES.on_message,
             "send-analysis-chat",
             lambda client, message: asyncio.create_task(self.handle_analysis_chat(client, message.content))
             if message.type == "send-analysis-chat" else None
+        )
+
+        self.socket.on(
+            ServerSocket.EVENTS_TYPES.on_message,
+            "send-analysis-chat-audio",
+            lambda client, message: asyncio.create_task(self.handle_analysis_chat_audio(client, message.content))
+            if message.type == "send-analysis-chat-audio" else None
         )
     
     async def start_game(self, info):
@@ -604,6 +618,42 @@ class Server:
                 "text": answer
             }
         await self.socket.send(client, protocol.Message(payload, "analysis-chat-response"))
+
+    async def handle_analysis_chat_audio(self, client, info):
+        """Handle audio analysis chat by transcribing it and processing as text."""
+        info = info or {}
+        audio_data = info.get("audio")
+        context = info.get("context", "")
+
+        if not audio_data:
+            payload = {
+                "error": "Audio data is required."
+            }
+            await self.socket.send(client, protocol.Message(payload, "analysis-chat-response"))
+            return
+
+        try:
+            # Transcribe audio to text
+            message = await self._transcribe_audio(audio_data)
+            if not message or not message.strip():
+                payload = {
+                    "error": "Could not understand the audio. Please try again."
+                }
+                await self.socket.send(client, protocol.Message(payload, "analysis-chat-response"))
+                return
+
+            # Process the transcribed message as a regular analysis chat
+            transcribed_info = {
+                "message": message.strip(),
+                "context": context
+            }
+            await self.handle_analysis_chat(client, transcribed_info)
+        except Exception as exc:
+            traceback.print_exc()
+            payload = {
+                "error": f"Error processing audio: {exc}"
+            }
+            await self.socket.send(client, protocol.Message(payload, "analysis-chat-response"))
     
     async def handle_theory_question(self, client, info):
         """Answer a theory question using the OpenAI assistant."""
@@ -637,6 +687,92 @@ class Server:
             }
 
         await self.socket.send(client, protocol.Message(payload, "theory-answer"))
+
+    async def handle_theory_question_audio(self, client, info):
+        """Handle audio theory question by transcribing it and processing as text."""
+        info = info or {}
+        audio_data = info.get("audio")
+        request_id = info.get("request_id")
+
+        if not audio_data:
+            payload = {
+                "id": request_id,
+                "error": "Audio data is required."
+            }
+            await self.socket.send(client, protocol.Message(payload, "theory-answer"))
+            return
+
+        try:
+            # Transcribe audio to text
+            question = await self._transcribe_audio(audio_data)
+            if not question or not question.strip():
+                payload = {
+                    "id": request_id,
+                    "error": "Could not understand the audio. Please try again."
+                }
+                await self.socket.send(client, protocol.Message(payload, "theory-answer"))
+                return
+
+            # Process the transcribed question as a regular theory question
+            transcribed_info = {
+                "question": question.strip(),
+                "request_id": request_id,
+                "fen": info.get("fen")
+            }
+            await self.handle_theory_question(client, transcribed_info)
+        except Exception as exc:
+            traceback.print_exc()
+            payload = {
+                "id": request_id,
+                "error": f"Error processing audio: {exc}"
+            }
+            await self.socket.send(client, protocol.Message(payload, "theory-answer"))
+
+    async def _transcribe_audio(self, audio_data):
+        """Transcribe audio data to text using OpenAI Whisper."""
+        if not audio_data or not audio_data.get("b64"):
+            return None
+
+        if not os.getenv("OPENAI_API_KEY"):
+            raise RuntimeError("OpenAI API key not configured")
+
+        try:
+            # Decode base64 audio data
+            audio_bytes = base64.b64decode(audio_data["b64"])
+            
+            # Create a temporary file for the audio data
+            import tempfile
+            with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_file:
+                temp_file.write(audio_bytes)
+                temp_file_path = temp_file.name
+
+            try:
+                # Use OpenAI client for transcription
+                client = self._ensure_openai_client()
+                with open(temp_file_path, "rb") as audio_file:
+                    transcript = await asyncio.to_thread(
+                        client.audio.transcriptions.create,
+                        model="whisper-1",
+                        file=audio_file,
+                        response_format="text"
+                    )
+                return transcript.strip() if isinstance(transcript, str) else transcript.text.strip()
+            finally:
+                # Clean up temporary file
+                try:
+                    os.unlink(temp_file_path)
+                except:
+                    pass
+
+        except Exception as exc:
+            traceback.print_exc()
+            raise RuntimeError(f"Speech-to-text transcription failed: {exc}")
+
+    def _ensure_openai_client(self):
+        """Ensure OpenAI client is available for speech-to-text."""
+        if not hasattr(self, '_openai_client') or self._openai_client is None:
+            self._openai_client = OpenAI()
+        return self._openai_client
 
     def _canon_player_color(self, player_color, fallback_turn=None):
         """Return chess.WHITE or chess.BLACK for assorted inputs."""

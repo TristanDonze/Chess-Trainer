@@ -2,9 +2,15 @@
   const messagesWrapper = document.querySelector('.messages-wrapper');
   const input = document.querySelector('.send-message-wrapper input');
   const sendButton = document.querySelector('.send-button');
+  const audioToggleText = document.querySelector('.switch-to-text');
+  const audioToggleAudio = document.querySelector('.switch-to-audio');
   if (!messagesWrapper || !input || !sendButton) return;
 
   const pendingResponses = new Map();
+  let isAudioMode = false;
+  let isRecording = false;
+  let mediaRecorder = null;
+  let audioChunks = [];
 
   function scrollToBottom() {
     messagesWrapper.scrollTop = messagesWrapper.scrollHeight;
@@ -107,6 +113,14 @@
   }
 
   function sendTheoryQuestion() {
+    if (isAudioMode) {
+      handleAudioInput();
+    } else {
+      handleTextInput();
+    }
+  }
+
+  function handleTextInput() {
     const message = input.value.trim();
     if (!message) return;
 
@@ -129,13 +143,134 @@
     }
   }
 
+  async function handleAudioInput() {
+    if (isRecording) {
+      stopRecording();
+    } else {
+      startRecording();
+    }
+  }
+
+  async function startRecording() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      alert('Audio recording is not supported in your browser.');
+      return;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      isRecording = true;
+      audioChunks = [];
+      
+      mediaRecorder = new MediaRecorder(stream);
+      mediaRecorder.ondataavailable = (event) => {
+        audioChunks.push(event.data);
+      };
+      
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+        await sendAudioMessage(audioBlob);
+        stream.getTracks().forEach(track => track.stop());
+      };
+      
+      mediaRecorder.start();
+      updateRecordingUI(true);
+      
+      // Auto-stop recording after 30 seconds
+      setTimeout(() => {
+        if (isRecording) {
+          stopRecording();
+        }
+      }, 30000);
+    } catch (err) {
+      console.error('Error starting audio recording:', err);
+      alert('Unable to access microphone. Please check your permissions.');
+      isRecording = false;
+      updateRecordingUI(false);
+    }
+  }
+
+  function stopRecording() {
+    if (mediaRecorder && isRecording) {
+      mediaRecorder.stop();
+      isRecording = false;
+      updateRecordingUI(false);
+    }
+  }
+
+  function updateRecordingUI(recording) {
+    if (recording) {
+      sendButton.textContent = 'stop';
+      sendButton.style.background = '#ff4444';
+      input.placeholder = '🎤 Recording... Click stop when done';
+      input.disabled = true;
+    } else {
+      sendButton.textContent = isAudioMode ? 'mic' : 'send';
+      sendButton.style.background = '';
+      input.placeholder = isAudioMode ? 'Click microphone to record question...' : 'Type your message...';
+      input.disabled = isAudioMode;
+    }
+  }
+
+  async function sendAudioMessage(audioBlob) {
+    const requestId = generateRequestId();
+    createMessageElement('user', '🎤 [Voice message]', { id: `${requestId}-user` });
+
+    const placeholder = createMessageElement('assistant', '♟️ Processing audio...', { id: requestId });
+    pendingResponses.set(requestId, placeholder);
+
+    try {
+      // Convert audio blob to base64
+      const arrayBuffer = await audioBlob.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      const base64 = btoa(String.fromCharCode.apply(null, uint8Array));
+
+      const payload = {
+        audio: {
+          b64: base64,
+          mime: 'audio/webm'
+        },
+        fen: getFenForRequest(),
+        request_id: requestId
+      };
+
+      send_message('theory-question-audio', payload);
+    } catch (err) {
+      console.error('Failed to send audio message:', err);
+      updateMessageElement(placeholder, "Unable to process audio message.", { error: true });
+      pendingResponses.delete(requestId);
+    }
+  }
+
+  function setAudioMode(enabled) {
+    isAudioMode = enabled;
+    if (audioToggleText) {
+      audioToggleText.classList.toggle('active', !enabled);
+    }
+    if (audioToggleAudio) {
+      audioToggleAudio.classList.toggle('active', enabled);
+    }
+    updateRecordingUI(false);
+  }
+
   sendButton.addEventListener('click', sendTheoryQuestion);
   input.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    if (event.key === 'Enter' && !event.shiftKey && !isAudioMode) {
       event.preventDefault();
       sendTheoryQuestion();
     }
   });
+
+  // Audio toggle event listeners
+  if (audioToggleText) {
+    audioToggleText.addEventListener('click', () => setAudioMode(false));
+  }
+  if (audioToggleAudio) {
+    audioToggleAudio.addEventListener('click', () => setAudioMode(true));
+  }
+
+  // Initialize in text mode
+  setAudioMode(false);
 
   createMessageElement(
     'assistant',
