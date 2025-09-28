@@ -406,7 +406,7 @@
         }
         let comment = current_game.moves[current_turn][current_move_idx].comment
         let audio = current_game.moves[current_turn][current_move_idx].audio
-        previous_move();
+        if (!pass_first_move) previous_move();
 
         chat_send_message("Let's discuss about this position.", "assistant");
         chat_send_message(

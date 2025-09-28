@@ -390,15 +390,18 @@ class Server:
             traceback.print_exc()
 
 
-    async def get_comment_game_analysis(self, fen: str, move: str, dx: float, last_white_winrate: float | None, current_white_winrate: float | None) -> str | None:
+    async def get_comment_game_analysis(self, fen: str, move: str, dx: float, last_white_winrate: float | None, current_white_winrate: float | None, is_user_white: bool, move_player_color: str) -> str | None:
+        print("move:", move, "dx:", dx)
         question = (
-            f"You are given a chess position (FEN: {fen} — do not display it) and the last move that was just played (do not reveal it). "
+            f"You are given a chess position (FEN: {fen} — do not display it) we want the user to rethink about the current position. "
+            f"The player that you are training is playing {'White' if is_user_white else 'Black'}. "
+            f"The move will be play by {move_player_color}. NOTE: we don't give back to the player the move he just played, it's just to help you understand the position with a fresh eyes. "
+            f"Understand that {'black' if move_player_color == 'white' else 'white'} win rate WOULD change after that move by {dx:+.1f}% if the same move is played. You don't need to mention the exact win rates, it's just to help you understand the impact of the move that was played in the initial game."
             f"Write at most two sentences that ask the user what they would do or avoid here and why, focusing on the idea and practical consequences. "
-            f"Mention that White's win rate changed by {dx:+.1f}%"
             + (f", from {last_white_winrate:.1f}% to {current_white_winrate:.1f}%." if last_white_winrate is not None and current_white_winrate is not None else ". ")
-            + "Use a friendly coaching tone; optionally reference a famous game/quote only if directly relevant; "
+            + "Optionally reference a famous game/quote only if directly relevant; Don't say 'a tactic' or 'an opportunity' etc. be specific. DON'T name pieces on the board (e.g. 'the knight on f5'),"
             "do not use notation (SAN/UCI) or square names; avoid generic praise/blame; be qualitative and concise; "
-            "prefer describing plans/attacks (think arrows) over color-highlights; end with a direct question."
+            "prefer describing plans/attacks (think arrows) over color-highlights; end with a direct (short ?) question."
         )
 
         try:
@@ -429,6 +432,13 @@ class Server:
         self._reset_player_eval_history()
         self.focused_game = Game()
         self.focused_game.load(info["game"]["pgn"], format="pgn")
+
+        # players ?
+        white_player = info["game"]["white"]["username"] or "White"
+        black_player = info["game"]["black"]["username"] or "Black"
+
+        is_user_white = (self.client_pseudo is not None and white_player.lower() == self.client_pseudo.lower())
+
         
         # Update chess agent with initial position for analysis
         self._update_chess_agent_fen(self.focused_game.fen())
@@ -467,14 +477,28 @@ class Server:
                 comment = None
                 comment_audio = None
                 if abs(dx) >= THRESHOLD:
-                    comment = await self.get_comment_game_analysis(
-                        fen=last_fen or fen,
-                        move=last_move.uci().upper() if last_move else move.uci().upper(),
-                        dx=last_dx,
-                        last_white_winrate=last_last_white_winrate,
-                        current_white_winrate=last_white_winrate
-                    )
-                    
+                    if is_user_white and self.focused_game.board.turn == chess.BLACK \
+                    or (not is_user_white) and self.focused_game.board.turn == chess.WHITE:
+                        comment = await self.get_comment_game_analysis(
+                            fen=fen,
+                            move=move.uci(),
+                            dx=dx,
+                            last_white_winrate=last_white_winrate,
+                            current_white_winrate=last_white_winrate,
+                            is_user_white=is_user_white,
+                            move_player_color="white" if idx % 2 == 0 else "black"
+                        )
+                    else:
+                        comment = await self.get_comment_game_analysis(
+                            fen=last_fen,
+                            move=last_move.uci(),
+                            dx=last_dx,
+                            last_white_winrate=last_last_white_winrate,
+                            current_white_winrate=last_white_winrate,
+                            is_user_white=is_user_white,
+                            move_player_color="white" if (idx - 1) % 2 == 0 else "black"
+                        )
+
                     # Generate TTS audio for the comment if it exists
                     if comment and comment.strip():
                         comment_audio = await self._generate_comment_audio(comment)
@@ -509,6 +533,9 @@ class Server:
                 await screen.step("Analyze game", (idx + 1) / len(self.focused_game.history), info=f"Analyzing move {idx + 1}/{len(self.focused_game.history)}", eta_s=(len(self.focused_game.history) - idx) * 2)
 
         ctn = {
+            "white_player": white_player,
+            "black_player": black_player,
+            "is_user_white": is_user_white,
             "moves": moves,
             "result": "white - " + info["game"]["white"]["result"] if info["game"]["white"]["result"] in ["win", "checkmated"] else "black - " + info["game"]["black"]["result"]
         }
