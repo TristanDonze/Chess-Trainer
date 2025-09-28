@@ -9,6 +9,8 @@ from typing import List, Dict, Any, Optional, AsyncIterator
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from agents import ModelSettings
+
 from .config import Config
 from .chess_rag import retrieve_chess_knowledge, get_weaviate_client
 from .openai_client import OpenAIClient, ChatMessage, get_openai_client
@@ -81,7 +83,8 @@ class ChessTrainerAgent:
         def get_stockfish_analysis_tool() -> str:
             """Get Stockfish analysis of current position"""
             return self.get_stockfish_analysis()
-        
+        from openai.types.shared import Reasoning
+
         # Create the voice agent
         self.voice_agent = Agent(
             name="Chess Trainer",
@@ -98,6 +101,9 @@ Stockfish Analysis: {self.stockfish_input}
 Speak naturally and conversationally. Keep responses concise but informative for voice interaction.
 Always consider the current board position when giving advice.""",
             model="gpt-4o",
+            model_settings=ModelSettings(
+                verbosity="medium",
+            ),
             tools=[retrieve_chess_knowledge_tool, update_game_state_tool, get_stockfish_analysis_tool]
         )
         

@@ -221,20 +221,24 @@ class TheoryAssistant:
 
     def _build_prompt(self, question: str, fen: Optional[str], context: List[RetrievedChunk]) -> List[Dict[str, Any]]:
         system_instructions = (
-            "You are a chess coach. Give really concise, practical advice. Verify all tactical claims. "
+            "You are a chess coach. Combine the current board state and retrieved knowledge "
+            "to provide practical, trustworthy advice. Always verify tactical claims,"
+            "mention critical variations in algebraic notation, and cite any referenced sources. Don't use markdown or code blocks.\n\n"
 
             "FEN POLICY (IMPORTANT):\n"
-            "- You SHOULD create a correct FEN (not empty) that answers the question, it MUST be legal and logical.\n"
+            "- Even if the user doesn't ask for showcase or move, you can still provide them if relevant. (it can really help the user to understand). Though, never propose to showcase, do it directly."
+            "- Ensure the FEN follow your answer and is consistent with the position you describe.\n"
+            "- You SHOULD create a correct FEN (not empty, don't have two bishops on the same square colors) that answers the question, it MUST be legal and logical.\n"
             "- If you are talking about a specific position you MUST provide a FEN .\n"
             "- Only place the FEN in the INSTRUCTIONS block; NEVER mention or display FEN in the main answer.\n"
 
-            "ARROW / MOVE POLICY (PRIMARY):\n"
+            "ARROW / MOVE POLICY:\n"
             "- In the INSTRUCTIONS block, use UCI coordinates (lowercase, e.g., e2e5, g2b7) to draw ARROWS that depict plans, attacks, lines, or piece trajectories.\n"
-            "- Arrows DO NOT need to be legal moves; they are descriptive. Use maximum 3 arrows \n"
+            "- Avoid using too much arrows.\n"
             "- Use arrows to convey ideas (for instance, to describe 'Fianchetto' do an arrow along the whole diagonal: g2a8).\n"
             "- List multiple arrows separated by ';'. Do NOT include SAN or comments in this field.\n\n"
 
-            "HIGHLIGHT POLICY (SECONDARY):\n"
+            "HIGHLIGHT POLICY:\n"
             "- Prefer arrows over colored squares. Only use colored squares if arrows are insufficient.\n"
             "- Use at most 1-2 colored squares total and try to avoid using them. Avoid highlighting irrelevant squares.\n"
             "- RED SQUARES use lowercase coordinates (e.g., 'e4;f7'). In the main answer (not in the block), briefly explain your color coding.\n\n"
