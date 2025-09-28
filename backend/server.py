@@ -26,7 +26,7 @@ if str(misc_rag_path) not in sys.path:
     sys.path.insert(0, str(misc_rag_path))
 
 try:
-    from chess_agent import get_chess_agent
+    from chess_agent import get_chess_agent # type: ignore
 except ImportError as e:
     print(f"Warning: Could not import chess_agent from misc/rag/src: {e}")
     get_chess_agent = None
@@ -389,6 +389,38 @@ class Server:
             asyncio.create_task(self.socket.broadcast(protocol.Message(str(e), "error").to_json()))
             traceback.print_exc()
 
+
+    async def get_comment_game_analysis(self, fen: str, move: str, dx: float, last_white_winrate: float | None, current_white_winrate: float | None) -> str | None:
+        question = (
+            f"You are given a chess position (FEN: {fen} — do not display it) and the last move that was just played (do not reveal it). "
+            f"Write at most two sentences that ask the user what they would do or avoid here and why, focusing on the idea and practical consequences. "
+            f"Mention that White's win rate changed by {dx:+.1f}%"
+            + (f", from {last_white_winrate:.1f}% to {current_white_winrate:.1f}%." if last_white_winrate is not None and current_white_winrate is not None else ". ")
+            + "Use a friendly coaching tone; optionally reference a famous game/quote only if directly relevant; "
+            "do not use notation (SAN/UCI) or square names; avoid generic praise/blame; be qualitative and concise; "
+            "prefer describing plans/attacks (think arrows) over color-highlights; end with a direct question."
+        )
+
+        try:
+            async with self._commentary_lock:
+                response = await asyncio.to_thread(
+                    THEORY_ASSISTANT.answer,
+                    question=question,
+                )
+        except RagServiceError:
+            return None
+        except Exception:
+            traceback.print_exc()
+            return None
+
+        if not response:
+            return None
+
+        answer = response.get("answer") if isinstance(response, dict) else None
+        if not answer:
+            return None
+        return answer.strip()
+
     async def analyse_game(self, client, info):
         """
         Analyze a game with the given PGN.
@@ -420,12 +452,28 @@ class Server:
 
             THRESHOLD = 15 # winrate change threshold to consider a move to be.a key move
 
+            last_last_white_winrate = 50
+            last_dx = 0
+            last_move = None
+            last_fen = None
             last_white_winrate = 50
             for idx, move in enumerate(self.focused_game.history):
+                fen = self.focused_game.fen()
                 self.focused_game.move(move)
 
                 evaluation = stockfish.evaluate(self.focused_game)
-                dx = (evaluation["white_win_pct"] or 0) - last_white_winrate  # todo handle None case (e.g. mate found)
+                dx = (evaluation["white_win_pct"] or last_white_winrate) - last_white_winrate  # todo handle None case (e.g. mate found)
+                
+                comment = None
+                if abs(dx) >= THRESHOLD:
+                    comment = await self.get_comment_game_analysis(
+                        fen=last_fen or fen,
+                        move=last_move.uci().upper() if last_move else move.uci().upper(),
+                        dx=last_dx,
+                        last_white_winrate=last_last_white_winrate,
+                        current_white_winrate=last_white_winrate
+                    )
+                    
                 moves["white" if idx % 2 == 0 else "black"].append({
                     "move": move.uci().upper(),
                     "fen": self.focused_game.fen(),
@@ -438,12 +486,14 @@ class Server:
                     "draw": self.focused_game.draw,
                     "piece": str(self.focused_game.get_piece(chess.square_name(move.to_square).upper())),
                     "key_move": abs(dx) >= THRESHOLD,
+                    "comment": comment,
                     **evaluation
                 })
-                last_move = moves["white" if idx % 2 == 0 else "black"][-1]
-                print(f"{"White" if idx % 2 == 0 else "Black"} Last move : {last_move["from"]} -> {last_move["to"]} ({last_move["move"]}), White Eval = {evaluation["white_win_pct"]}, Black Eval = {evaluation["black_win_pct"]}, dx = {dx}, {"Key move" if abs(dx) >= THRESHOLD else "Normal move"}")
-
-                last_white_winrate = evaluation["white_win_pct"] or 0
+                last_last_white_winrate = last_white_winrate
+                last_white_winrate = evaluation["white_win_pct"] or last_white_winrate
+                last_dx = dx
+                last_move = move
+                last_fen = fen
 
                 await screen.step("Analyze game", (idx + 1) / len(self.focused_game.history), info=f"Analyzing move {idx + 1}/{len(self.focused_game.history)}", eta_s=(len(self.focused_game.history) - idx) * 2)
 

@@ -41,19 +41,27 @@ class StockfishAI(Engine):
             return chess.Move.from_uci(best_move_uci)
         return None
     
-    def evaluate(self, game) -> tuple[float, float]:
+    def evaluate(self, game) -> dict:
         """
-        Evaluates the current board position using Stockfish.
-        
-        :return: A tuple containing (centipawn evaluation, mate in N moves).
-                 Centipawn evaluation is positive if White is better, negative if Black is better.
-                 Mate in N moves is positive if White can mate in N moves, negative if Black can mate in N moves.
+        Evaluate the current position with Stockfish.
+
+        Returns a dict:
+        {
+            'cp': int | None,                # centipawns from White's POV (positive = White better)
+            'white_win_pct': float | None,   # heuristic win prob for White in [0,100]
+            'black_win_pct': float | None,   # 100 - white_win_pct (if available)
+            'white_mate_in': int | None,     # mate in N moves for White (if forced)
+            'black_mate_in': int | None,     # mate in N moves for Black (if forced)
+        }
+        Notes:
+        - When a forced mate is reported, cp is None.
+        - Win percentages are heuristic, not calibrated; do not use for scoring.
         """
         board_fen = game.board.fen()
         self.stockfish.set_fen_position(board_fen)
         evaluation = self.stockfish.get_evaluation()
 
-        side = board_fen.split()[1]            # 'w' ou 'b'
+        side = board_fen.split()[1]  # 'w' or 'b'
 
         out = {
             'white_win_pct': None,
@@ -64,30 +72,39 @@ class StockfishAI(Engine):
         }
 
         if evaluation.get('type') != 'mate':
-            cp = evaluation.get('value', 0)   # centipawns (signé, point de vue du camp au trait)
-            if side == 'b':
-                cp = -cp                       # on inverse le signe si c'est aux Noirs de jouer
+            cp = int(evaluation.get('value', 0))  # Stockfish cp is from side-to-move POV
+            # if side == 'b':
+            #     cp = -cp  # convert to White's POV
             out['cp'] = cp
-            out['white_win_pct'] = max(0, min(100, 50 + cp / 10))  # approximation très grossière
-            out['black_win_pct'] = 100 - out['white_win_pct']
 
-            return out  # pas de mate forcé détecté
+            # Heuristic win prob from cp (logistic; scale ~250 cp ≈ 75/25 split)
+            # Adjust 250 to your taste / calibration data.
+            k = 250.0
+            p_white = 1.0 / (1.0 + pow(10.0, -cp / k))
+            out['white_win_pct'] = max(0.0, min(100.0, 100.0 * p_white))
+            out['black_win_pct'] = 100.0 - out['white_win_pct']
+            return out
 
-        ply = int(evaluation.get('value', 0))  # mate en N demis-coups (signé, point de vue du camp au trait)
+        # Mate score: value is plies (signed), from side-to-move POV
+        ply = int(evaluation.get('value', 0))
         if ply == 0:
-            return out  # cas pathologique, on ignore
+            return out  # ignore pathological zero
 
         if ply > 0:
-            winner = side                     # le camp au trait mate
-            mate_moves = (ply + 1) // 2       # ceil(ply/2)
+            winner = side                 # side to move mates
+            mate_moves = (ply + 1) // 2   # ceil(plies/2)
         else:
-            winner = 'w' if side == 'b' else 'b'  # l'autre camp mate
+            winner = 'w' if side == 'b' else 'b'
             mate_moves = ((-ply) + 1) // 2
 
         if winner == 'w':
-            out['white_win_pct'] = 100
+            out['white_win_pct'] = 100.0
+            out['black_win_pct'] = 0.0
             out['white_mate_in'] = mate_moves
         else:
-            out['black_win_pct'] = 100
+            out['white_win_pct'] = 0.0
+            out['black_win_pct'] = 100.0
             out['black_mate_in'] = mate_moves
+
         return out
+

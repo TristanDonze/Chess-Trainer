@@ -56,6 +56,7 @@
                     <div class="messages-wrapper">
                         <!-- messages -->
                     </div>
+                    <span class="next btn" onclick="continue_game_analysis(true)">Next</span>
                     <div class="actions-wrapper">
                         <div class="send-message-wrapper">
                             <input type="text" placeholder="Type your message...">
@@ -355,7 +356,8 @@
             }
             console.log("Game loaded:", data);
             current_game = data;
-
+            
+            start_game_analysis()
             // move_idx = 0;
             // current_turn = 'white';
             // draw_game(data.moves[current_turn][move_idx].fen);
@@ -371,6 +373,40 @@
         });
     }
 
+    async function start_game_analysis() {
+        if (!is_game_analysis || !current_game) return;
+        chat_clear_messages();
+        chat_send_message("Let's analyze this game together!", "assistant");
+        move_idx = 0;
+        current_turn = 'white';
+
+        continue_game_analysis(false);
+    }
+
+    async function continue_game_analysis(pass_first_move=true) {
+        if (!is_game_analysis || !current_game) return;
+
+        if (pass_first_move) {
+            next_move();
+            next_move();
+        }
+
+        timeout = 320;
+        while (current_game.moves[current_turn]?.length > move_idx && !current_game.moves[current_turn][current_move_idx].key_move) {
+            await new Promise(r => setTimeout(r, timeout));
+            timeout = timeout > 20 ? timeout - 20 : 20;
+            next_move();
+        }
+        let comment = current_game.moves[current_turn][current_move_idx].comment
+        previous_move();
+
+        chat_send_message("Let's discuss about this position.", "assistant");
+        chat_send_message(
+            comment || "No commentary available for this move.",
+            "assistant"
+        );
+    }
+
     function next_move() {
         if (!is_game_analysis || !current_game) {
             // end game sound + clear interval
@@ -380,8 +416,6 @@
             return;
         }
         if (current_game.moves[current_turn]?.length > current_move_idx) {
-            console.log("Playing move:", current_game.moves[current_turn][current_move_idx]);
-
             board = d3.select("#board");
             board.selectAll("rect").classed("moved", false);
 
@@ -418,9 +452,6 @@
             if (current_game.moves[current_turn][current_move_idx].king_in_check) {
                 new Audio('../media/move-check.mp3').play();
             }
-            console.log("Highlighting move from", move_from_square, "to", move_to_square);
-            console.log("->", rect_from, rect_to);
-
             rect_from.classed("moved", true);
             rect_to.classed("moved", true);
             
@@ -543,6 +574,33 @@
     function pause_auto_play() {
         clearInterval(auto_play_interval);
         auto_play_interval = null;
+    }
+
+    function chat_send_message(msg) {
+        const wrapper = document.createElement('div');
+        wrapper.className = 'message message--assistant';
+
+        // Bubble container
+        const bubble = document.createElement('div');
+        bubble.className = 'message__bubble';
+
+        // Text node
+        const text = document.createElement('div');
+        text.className = 'message__text';
+        text.textContent = msg;
+
+        // Nest the elements
+        bubble.appendChild(text);
+        wrapper.appendChild(bubble);
+
+        document.querySelector('.messages-wrapper').appendChild(wrapper);
+    }
+
+    chat_clear_messages = () => {
+        const container = document.querySelector('.messages-wrapper');
+        if (container) {
+            container.innerHTML = '';
+        }
     }
 
 </script>
