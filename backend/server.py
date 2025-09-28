@@ -10,6 +10,7 @@ from openai import OpenAI
 
 from src.utils.socket_server import ServerSocket
 from src.utils.extract_chesscom import get_chesscom_data
+from src.analysis import analyze_recent_games
 
 import src.utils.message as protocol
 
@@ -378,10 +379,12 @@ class Server:
         
         try:
             elo, games = get_chesscom_data(self.client_pseudo)
+            analysis = analyze_recent_games(games, self.client_pseudo)
             ctn = {
                 "elo": elo,
                 "nb_games": len(games),
-                "games": games
+                "games": games,
+                "analysis": analysis,
             }
             self.client_profil = ctn
             asyncio.create_task(self.socket.broadcast(protocol.Message(ctn, "chesscom-profil").to_json()))

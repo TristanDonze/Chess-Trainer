@@ -53,7 +53,10 @@ def get_chesscom_data(username: str) -> tuple[Dict[str, int], List[Dict[str, str
             "url": g.get("url"),
             "white": g.get("white", {}),
             "black": g.get("black", {}),
-            "pgn": g.get("pgn")
+            "pgn": g.get("pgn"),
+            "end_time": g.get("end_time"),
+            "time_control": g.get("time_control"),
+            "rules": g.get("rules"),
         })
 
     return elo, games_list
