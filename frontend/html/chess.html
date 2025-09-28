@@ -84,6 +84,10 @@
     const commentaryHistory = [];
     let commentaryAudioEnabled = true;
     let commentaryAudioPlayer = null;
+    let isAudioModeChat = false;
+    let isRecordingChat = false;
+    let mediaRecorderChat = null;
+    let audioChunksChat = [];
 
     const nextButton = document.querySelector('.next.btn');
 
@@ -109,11 +113,142 @@
     }
 
     if (audioToggleText) {
-        audioToggleText.addEventListener('click', () => setCommentaryAudio(false));
+        audioToggleText.addEventListener('click', () => {
+            setCommentaryAudio(false);
+            setChatAudioMode(false);
+        });
     }
     if (audioToggleAudio) {
-        audioToggleAudio.addEventListener('click', () => setCommentaryAudio(true));
+        audioToggleAudio.addEventListener('click', () => {
+            setCommentaryAudio(true);
+            setChatAudioMode(true);
+        });
         audioToggleAudio.classList.add('active');
+    }
+
+    // Initialize chat mode
+    setChatAudioMode(false);
+
+    function setChatAudioMode(enabled) {
+        isAudioModeChat = enabled;
+        updateChatUI();
+    }
+
+    function updateChatUI() {
+        const sendButton = document.querySelector('.send-button');
+        const input = document.querySelector('.send-message-wrapper input');
+        
+        if (!sendButton || !input) return;
+        
+        if (isRecordingChat) {
+            sendButton.textContent = 'stop';
+            sendButton.style.background = '#ff4444';
+            input.placeholder = '🎤 Recording... Click stop when done';
+            input.disabled = true;
+        } else {
+            sendButton.textContent = isAudioModeChat ? 'mic' : 'send';
+            sendButton.style.background = '';
+            input.placeholder = isAudioModeChat ? 'Click microphone to record message...' : 'Type your message...';
+            input.disabled = isAudioModeChat;
+        }
+    }
+
+    async function startChatRecording() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            alert('Audio recording is not supported in your browser.');
+            return;
+        }
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            isRecordingChat = true;
+            audioChunksChat = [];
+            
+            mediaRecorderChat = new MediaRecorder(stream);
+            mediaRecorderChat.ondataavailable = (event) => {
+                audioChunksChat.push(event.data);
+            };
+            
+            mediaRecorderChat.onstop = async () => {
+                const audioBlob = new Blob(audioChunksChat, { type: 'audio/webm' });
+                await sendAudioChatMessage(audioBlob);
+                stream.getTracks().forEach(track => track.stop());
+            };
+            
+            mediaRecorderChat.start();
+            updateChatUI();
+            
+            // Auto-stop recording after 30 seconds
+            setTimeout(() => {
+                if (isRecordingChat) {
+                    stopChatRecording();
+                }
+            }, 30000);
+        } catch (err) {
+            console.error('Error starting audio recording:', err);
+            alert('Unable to access microphone. Please check your permissions.');
+            isRecordingChat = false;
+            updateChatUI();
+        }
+    }
+
+    function stopChatRecording() {
+        if (mediaRecorderChat && isRecordingChat) {
+            mediaRecorderChat.stop();
+            isRecordingChat = false;
+            updateChatUI();
+        }
+    }
+
+    async function sendAudioChatMessage(audioBlob) {
+        if (!is_game_analysis || !current_game) return;
+
+        chat_send_message('🎤 [Voice message]', "user");
+
+        try {
+            // Convert audio blob to base64
+            const arrayBuffer = await audioBlob.arrayBuffer();
+            const uint8Array = new Uint8Array(arrayBuffer);
+            const base64 = btoa(String.fromCharCode.apply(null, uint8Array));
+
+            const payload = {
+                audio: {
+                    b64: base64,
+                    mime: 'audio/webm'
+                },
+                context: chat_analysis_context
+            };
+
+            send_message("send-analysis-chat-audio", payload);
+            
+            wait_for_message("analysis-chat-response", timeout=30000, only_content=true).then((data) => {
+                if (data === null) {
+                    Toast.error("No response from analysis chat.");
+                    return;
+                }
+                console.log("Chat response:", data);
+                chat_send_message(data.text || "No response.", "assistant");
+
+                if (data.audio && data.audio.b64 && commentaryAudioEnabled) {
+                    const mime = data.audio.mime || 'audio/mpeg';
+                    const src = `data:${mime};base64,${data.audio.b64}`;
+                    try {
+                        if (commentaryAudioPlayer) {
+                            commentaryAudioPlayer.pause();
+                        }
+                        commentaryAudioPlayer = new Audio(src);
+                        commentaryAudioPlayer.play().catch((error) => {
+                            console.error('Unable to play chat TTS audio during analysis', error);
+                        });
+                    } catch (error) {
+                        console.error('Error creating chat TTS audio during analysis', error);
+                    }
+                }
+            });
+        } catch (err) {
+            console.error('Failed to send audio message:', err);
+            Toast.error("Unable to process audio message.");
+        }
     }
 
     function handle_game_commentary(payload) {
@@ -444,6 +579,12 @@
 
     function send_chat_to_ai(messageElement) {
         if (!is_game_analysis || !current_game) return;
+        
+        if (isAudioModeChat) {
+            handleAudioChatInput();
+            return;
+        }
+        
         if (!messageElement) return;
         if (!messageElement.querySelector("input")) return;
         if (!messageElement.querySelector("input").value) return;
@@ -642,6 +783,14 @@
     function pause_auto_play() {
         clearInterval(auto_play_interval);
         auto_play_interval = null;
+    }
+
+    async function handleAudioChatInput() {
+        if (isRecordingChat) {
+            stopChatRecording();
+        } else {
+            await startChatRecording();
+        }
     }
 
     function chat_send_message(msg) {
