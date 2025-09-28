@@ -226,8 +226,7 @@ class TheoryAssistant:
             "mention critical variations in algebraic notation, and cite any referenced sources. Don't use markdown or code blocks.\n\n"
 
             "FEN POLICY (IMPORTANT):\n"
-            "- Even if the user doesn't ask for showcase or move, you can still provide them if relevant. (it can really help the user to understand). Though, never propose to showcase, do it directly."
-            "- Ensure the FEN follow your answer and is consistent with the position you describe.\n"
+            "- Ensure the FEN is **possible** in a normal game and follows your answer and is consistent with the position you describe.\n"
             "- You SHOULD create a correct FEN (not empty, don't have two bishops on the same square colors) that answers the question, it MUST be legal and logical.\n"
             "- If you are talking about a specific position you MUST provide a FEN .\n"
             "- Only place the FEN in the INSTRUCTIONS block; NEVER mention or display FEN in the main answer.\n"
@@ -260,9 +259,9 @@ class TheoryAssistant:
 
 
         context_lines: List[str] = []
-        if fen:
-            context_lines.append(f"Current position FEN: {fen}")
-            context_lines.append("Explain relevant plans for the side to move and tactical alerts.")
+        # if fen:
+        #     context_lines.append(f"Current position FEN: {fen}")
+        #     context_lines.append("Explain relevant plans for the side to move and tactical alerts.")
 
         if context:
             context_lines.append("Retrieved knowledge base excerpts:")
@@ -277,7 +276,8 @@ class TheoryAssistant:
                     parts.append(f"URL: {chunk.url}")
                 context_lines.append("\n".join(parts))
         else:
-            context_lines.append("No external context was retrieved; rely on core chess knowledge.")
+            print("RAG: no context retrieved")
+            context_lines.append("No external context was retrieved; rely on core chess knowledge (or other sources at your disposal).")
 
         user_prompt = (
             "\n\n".join(context_lines)

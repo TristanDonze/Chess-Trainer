@@ -271,7 +271,7 @@ class Server:
             self.focused_game.move(move)
             post_fen = self.focused_game.fen()
         except Exception as e:
-            asyncio.create_task(self.socket.broadcast(protocol.Message(str, "error"(e)).to_json()))
+            asyncio.create_task(self.socket.broadcast(protocol.Message(str(e), "error").to_json()))
             traceback.print_exc()
             return
 
@@ -412,7 +412,6 @@ class Server:
         info = info or {}
         question = (info.get("question") or "").strip()
         request_id = info.get("request_id")
-        fen = self.focused_game.fen() if self.focused_game is not None else "N/A - just theory question"
 
         if not question:
             payload = {
@@ -423,23 +422,20 @@ class Server:
             return
 
         try:
-            answer = THEORY_ASSISTANT.answer(question=question, fen=fen, request_id=request_id)
+            answer = THEORY_ASSISTANT.answer(question=question, request_id=request_id)
             payload = {
                 **answer,
-                "fen": fen,
             }
         except RagServiceError as exc:
             payload = {
                 "id": request_id,
                 "error": str(exc),
-                "fen": fen,
             }
         except Exception as exc:
             traceback.print_exc()
             payload = {
                 "id": request_id,
                 "error": f"Unexpected error: {exc}",
-                "fen": fen,
             }
 
         await self.socket.send(client, protocol.Message(payload, "theory-answer"))
@@ -462,11 +458,11 @@ class Server:
             if s in {"black", "b", "0", "false", "no"}:
                 return chess.BLACK
         fallback = fallback_turn if fallback_turn in (chess.WHITE, chess.BLACK) else None
-        if fallback is None:
-            self._debug_log({
-                "warn": "canon_color_fallback_missing",
-                "received": repr(player_color)
-            })
+        # if fallback is None:
+        #     self._debug_log({
+        #         "warn": "canon_color_fallback_missing",
+        #         "received": repr(player_color)
+        #     })
         return fallback or chess.WHITE
 
     def _ensure_analysis_engine(self):
@@ -516,9 +512,10 @@ class Server:
                 else:
                     analysis["comment"] = self._fallback_comment(analysis)
 
-            audio_payload = await self._generate_comment_audio(analysis.get("comment"))
-            if audio_payload:
-                analysis["audio"] = audio_payload
+            if analysis.get("severity") != "correct":
+                audio_payload = await self._generate_comment_audio(analysis.get("comment"))
+                if audio_payload:
+                    analysis["audio"] = audio_payload
 
             message_payload = self._build_commentary_message(analysis)
             if message_payload:
@@ -705,7 +702,7 @@ class Server:
 
             mate_plies = abs(int(mate_val))
             mate_moves = math.ceil(mate_plies / 2)
-            winner_color = board.turn if mate_val > 0 else (chess.WHITE if board.turn == chess.BLACK else chess.BLACK)
+            winner_color = board.turn if mate_val > 0 else (chess.WHITE if board.turn == chess.WHITE else chess.BLACK)
             score_for_white = 100000 - mate_moves * 100
             # if winner_color == chess.BLACK:
             #     score_for_white = -score_for_white
@@ -812,7 +809,7 @@ class Server:
             return None
         return f"{self._format_cp(score_cp)} for White"
 
-    def _build_comment_prompt(self, analysis):
+    def _build_comment_prompt_for_training_game(self, analysis):
         if not analysis:
             return None
 
@@ -825,6 +822,10 @@ class Server:
             f"We are analyzing a live chess game. {color_text} just played {move_info.get('san') or move_info.get('uci')} ({move_info.get('uci')}) on move {analysis.get('move_number')}.",
             f"Before the move, Stockfish evaluation was {analysis.get('pre_eval_summary')}. After the move it is {analysis.get('post_eval_summary')}.",
             f"This changed {color_text}'s evaluation by {delta_pawns:+.2f} pawns ({severity_label}).",
+            f"Don't use 'OR' to describe impact of the move, it's look like you are not sure about the impact.",
+            "Don't use general phrases like 'This move is good' or 'There is threat', or 'a critical vulnerability', explain and describe concretely the threat, the tactic, the plan, the idea, the strategy, the positional or material gain or loss, etc.",
+            f"Your task is to provide concise, clear, constructive, interesting and natural chess commentary to help the player understand their move and improve their skills.",
+            f"Avoid generic advice as possible, describe directly the impact of the move (and the move itself if needed); focus on the specific position and move made. Don't mention Stockfish or engine analysis explicitly.",
         ]
 
         best_move = analysis.get("best_move")
@@ -840,7 +841,7 @@ class Server:
         return "\n".join(lines)
 
     async def _generate_comment_text(self, analysis):
-        question = self._build_comment_prompt(analysis)
+        question = self._build_comment_prompt_for_training_game(analysis)
         if not question:
             return None
 
@@ -899,7 +900,7 @@ class Server:
                 model=self._tts_model,
                 voice=self._tts_voice,
                 input=text,
-                format="mp3"
+                # format="mp3"
             )
         except Exception:
             traceback.print_exc()
@@ -957,7 +958,9 @@ class Server:
         move_info = analysis.get("move", {})
         color = analysis.get("player_color", "white").capitalize()
         move_label = move_info.get("san") or move_info.get("uci") or "the move"
-        return f"{color} played {move_label}, a correct move that maintains the balance."
+        if analysis["show_recommendation"]:
+            return f"{color} played {move_label}, a correct move that maintains the balance."
+        return f"{color} played {move_label}, the best move in this position."
 
     def _build_commentary_message(self, analysis):
         if not analysis:

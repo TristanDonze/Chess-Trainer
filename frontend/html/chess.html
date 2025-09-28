@@ -118,7 +118,12 @@
 
         const heading = document.createElement('div');
         heading.className = 'commentary-heading';
-        heading.textContent = payload.severity_label || 'Move feedback';
+        if (!payload.show_recommendation && payload.actual_is_best) {
+            heading.textContent = 'Best Move';
+            heading.classList.add('best-move');
+        } else {
+            heading.textContent = payload.severity_label || 'Move feedback';
+        }
 
         const moveSpan = document.createElement('span');
         moveSpan.className = 'move';
