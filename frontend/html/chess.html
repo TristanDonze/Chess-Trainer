@@ -567,6 +567,9 @@
             return;
         }
         let comment = current_game.moves[current_turn][current_move_idx].comment
+        let comment_context = current_game.moves[current_turn][current_move_idx].comment_context
+
+        chat_analysis_context = "[SITUATION CONTEXT]:\n" + (comment_context || "No context available.") + "\n\n[END OF CONTEXT]\n\n[TEXT SEND TO USER]:\n" + (comment || "No commentary available for this move.") + "\n\n[END OF TEXT]\n\n [INSTRUCTIONS]:\n**Check that the user don't mistake giving a illegal move using the FEN. If it's wrong, just say that the move is illegal.** Focus on concluding on the user new answer, the user may be wrong. You have to conclude, avoid asking anymore question.\n\n[END OF INSTRUCTIONS] \n\n[USER ANSWER]:\n"
         let audio = current_game.moves[current_turn][current_move_idx].audio
         if (!pass_first_move) previous_move();
 

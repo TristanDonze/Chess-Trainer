@@ -414,7 +414,7 @@ class Server:
             traceback.print_exc()
 
 
-    async def get_comment_game_analysis(self, fen: str, move: str, dx: float, last_white_winrate: float | None, current_white_winrate: float | None, is_user_white: bool, move_player_color: str) -> str | None:
+    async def get_comment_game_analysis(self, fen: str, move: str, dx: float, last_white_winrate: float | None, current_white_winrate: float | None, is_user_white: bool, move_player_color: str, best_move: str) -> str | None:
         print("move:", move, "dx:", dx)
         question = (
             f"You are given a chess position (FEN: {fen} — do not display it) we want the user to rethink about the current position. "
@@ -426,6 +426,7 @@ class Server:
             + "Optionally reference a famous game/quote only if directly relevant; Don't say 'a tactic' or 'an opportunity' etc. be specific. DON'T name pieces on the board (e.g. 'the knight on f5'),"
             "do not use notation (SAN/UCI) or square names; avoid generic praise/blame; be qualitative and concise; "
             "prefer describing plans/attacks (think arrows) over color-highlights; end with a direct (short ?) question."
+            f"Also, the best move here is {best_move} (do not say it in your first answer)."
         )
 
         try:
@@ -446,7 +447,7 @@ class Server:
         answer = response.get("answer") if isinstance(response, dict) else None
         if not answer:
             return None
-        return answer.strip()
+        return answer.strip(), question.strip()
 
     async def analyse_game(self, client, info):
         """
@@ -496,6 +497,11 @@ class Server:
                 self.focused_game.move(move)
 
                 evaluation = stockfish.evaluate(self.focused_game)
+                stockfish.stockfish.set_fen_position(fen)
+                best_move_uci = stockfish.stockfish.get_best_move_time(100)
+
+                stockfish.stockfish.set_fen_position(last_fen or fen)
+                last_best_move_uci = stockfish.stockfish.get_best_move_time(100)
                 dx = (evaluation["white_win_pct"] or last_white_winrate) - last_white_winrate  # todo handle None case (e.g. mate found)
                 
                 comment = None
@@ -503,24 +509,26 @@ class Server:
                 if abs(dx) >= THRESHOLD:
                     if is_user_white and self.focused_game.board.turn == chess.BLACK \
                     or (not is_user_white) and self.focused_game.board.turn == chess.WHITE:
-                        comment = await self.get_comment_game_analysis(
+                        comment, context = await self.get_comment_game_analysis(
                             fen=fen,
                             move=move.uci(),
                             dx=dx,
                             last_white_winrate=last_white_winrate,
                             current_white_winrate=last_white_winrate,
                             is_user_white=is_user_white,
-                            move_player_color="white" if idx % 2 == 0 else "black"
+                            move_player_color="white" if idx % 2 == 0 else "black",
+                            best_move=best_move_uci
                         )
                     else:
-                        comment = await self.get_comment_game_analysis(
+                        comment, context = await self.get_comment_game_analysis(
                             fen=last_fen,
                             move=last_move.uci(),
                             dx=last_dx,
                             last_white_winrate=last_last_white_winrate,
                             current_white_winrate=last_white_winrate,
                             is_user_white=is_user_white,
-                            move_player_color="white" if (idx - 1) % 2 == 0 else "black"
+                            move_player_color="white" if (idx - 1) % 2 == 0 else "black",
+                            best_move=last_best_move_uci
                         )
 
                     # Generate TTS audio for the comment if it exists
@@ -540,6 +548,7 @@ class Server:
                     "piece": str(self.focused_game.get_piece(chess.square_name(move.to_square).upper())),
                     "key_move": abs(dx) >= THRESHOLD,
                     "comment": comment,
+                    "comment_context": context if comment else None,
                     **evaluation
                 }
                 
