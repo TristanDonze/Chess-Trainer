@@ -56,7 +56,7 @@
                     <div class="actions-wrapper">
                         <div class="send-message-wrapper">
                             <input type="text" placeholder="Type your message...">
-                            <button class="send-button material-symbols-outlined">send</button>
+                            <button class="send-button material-symbols-outlined" onclick="send_chat_to_ai(this.parentElement)">send</button>
                         </div>
                         
                         <div class="switch-wrapper">
@@ -75,6 +75,7 @@
     let current_move_idx = 0;
     let current_turn = 'white';
     let is_game_analysis = false;
+    let chat_analysis_context = null;
     let auto_play_interval = null;
 
     const messagesWrapper = document.querySelector('.messages-wrapper');
@@ -399,12 +400,22 @@
         }
 
         timeout = 320;
-        while (current_game.moves[current_turn]?.length > move_idx && !current_game.moves[current_turn][current_move_idx].key_move) {
+        while (current_game.moves[current_turn]?.length > current_move_idx && !current_game.moves[current_turn][move_idx].key_move) {
             await new Promise(r => setTimeout(r, timeout));
             timeout = timeout > 20 ? timeout - 20 : 20;
             next_move();
         }
+        if (current_game.moves[current_turn][current_move_idx] === undefined) {
+            // end of game
+            clearInterval(auto_play_interval);
+            await new Promise(r => setTimeout(r, 200));
+            chat_send_message("The game analysis is complete. Well played!", "assistant");
+            auto_play_interval = null;
+            setNextButtonVisible(false);
+            return;
+        }
         let comment = current_game.moves[current_turn][current_move_idx].comment
+        chat_analysis_context = comment + ""
         let audio = current_game.moves[current_turn][current_move_idx].audio
         if (!pass_first_move) previous_move();
 
@@ -432,10 +443,26 @@
         }
     }
 
+    function send_chat_to_ai(messageElement) {
+        if (!is_game_analysis || !current_game) return;
+        if (!messageElement) return;
+        if (!messageElement.querySelector("input")) return;
+        if (!messageElement.querySelector("input").value) return;
+        if (messageElement.querySelector("input").value.trim() === "") return;
+
+        const message = messageElement.querySelector("input").value;
+        if (!message) return;
+
+        chat_send_message(message, "user");
+        messageElement.querySelector("input").value = "";
+
+        send_message("analysis-chat", {message: message, context: chat_analysis_context})
+    }
+
     function next_move() {
         if (!is_game_analysis || !current_game) {
             // end game sound + clear interval
-            new Audio('../media/game-end.mp3').play();
+            new Audio('../media/game-end.webm').play();
             clearInterval(auto_play_interval);
             auto_play_interval = null;
             return;
@@ -490,7 +517,7 @@
                 clearInterval(auto_play_interval);
                 auto_play_interval = null;
                 
-                new Audio('../media/game-end.mp3').play();
+                new Audio('../media/game-end.webm').play();
                 winning_side = last_turn === 'white' ? current_game.moves['black'][last_move_idx].winner : current_game.moves['white'][last_move_idx].winner;
                 console.log("Game ended. Winning side:", winning_side);
 

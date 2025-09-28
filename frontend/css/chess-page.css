@@ -1,6 +1,6 @@
 main {
-    width: min(1400px, 96vw);
-    margin: clamp(40px, 6vw, 80px) auto;
+    width: calc(100% - 80px);;
+    margin: 40px auto;
     min-height: calc(100vh - clamp(80px, 12vw, 140px));
     display: grid;
     grid-template-columns: auto 1fr;
