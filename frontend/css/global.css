@@ -45,7 +45,7 @@ html {
 body {
     min-height: 100%;
     margin: 0;
-    padding: clamp(20px, 4vw, 42px);
+    padding: 0;
     font-family: 'Inter', 'Roboto', 'Segoe UI', sans-serif;
     font-size: 16px;
     line-height: 1.6;
@@ -462,7 +462,7 @@ progress.evaluator {
 
 @media (max-width: 768px) {
     body {
-        padding: 18px;
+        padding: 0;
     }
 
     .toast {

@@ -82,6 +82,10 @@ nav > a.current {
     pointer-events: none;
 }
 
+.chatbox-wrapper {
+    max-height: 60svh;
+}
+
 .chessboard-wrapper {
     background: rgba(13, 21, 36, 0.65);
     border-radius: clamp(24px, 4vw, 32px);
@@ -111,15 +115,6 @@ nav > a.current {
     border: 1px solid rgba(148, 163, 184, 0.2);
     padding: clamp(1.4rem, 3vw, 2rem);
     position: relative;
-}
-
-.interaction-wrapper::before {
-    content: "";
-    position: absolute;
-    inset: clamp(1rem, 2vw, 1.6rem);
-    border-radius: inherit;
-    border: 1px solid rgba(148, 163, 184, 0.16);
-    pointer-events: none;
 }
 
 .avatar-wrapper {
