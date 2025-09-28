@@ -676,7 +676,7 @@ class Server:
     async def handle_theory_question(self, client, info):
         """Answer a theory question using the OpenAI assistant."""
         info = info or {}
-        question = (info.get("question") or "").strip()
+        question = "try to give the most accurate FEN in the INSTRUCTION section to explain this.\n" + (info.get("question") or "").strip()
         request_id = info.get("request_id")
 
         if not question:
@@ -1212,7 +1212,7 @@ class Server:
         lines = [
             f"We are analyzing a live chess game. {color_text} just played {move_info.get('san')} (uci: {move_info.get('uci')}) on move {analysis.get('move_number')}.",
             f"Before the move, Stockfish evaluation was {analysis.get('pre_eval_summary')}. After the move it is {analysis.get('post_eval_summary')}.",
-            f"This changed {color_text}'s evaluation by {delta_pawns:+.2f} pawns ({severity_label}). The move played before by the opponent was {self.last_moved_piece['piece']} (from: {self.last_moved_piece['from']}, to: {self.last_moved_piece['to']}) { 'and took player piece' if take_our_piece else ''}.",
+            f"This changed {color_text}'s evaluation by {delta_pawns:+.2f} pawns ({severity_label}). The move played after by the opponent was {self.last_moved_piece['piece']} (from: {self.last_moved_piece['from']}, to: {self.last_moved_piece['to']}) { 'and took player piece' if take_our_piece else ''}.",
             f"Don't use 'OR' to describe impact of the move, it's look like you are not sure about the impact.",
             "Don't use general phrases like 'This move is good' or 'There is threat', or 'a critical vulnerability', explain and describe concretely the threat, the tactic, the plan, the idea, the strategy, the positional or material gain or loss, etc.",
             f"Your task is to provide concise, clear, constructive, interesting and natural chess commentary to help the player understand their move and improve their skills.",

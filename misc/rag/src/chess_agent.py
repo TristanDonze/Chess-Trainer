@@ -103,6 +103,7 @@ Always consider the current board position when giving advice.""",
             model="gpt-4o",
             model_settings=ModelSettings(
                 verbosity="medium",
+                reasoning=Reasoning(effort="high")
             ),
             tools=[retrieve_chess_knowledge_tool, update_game_state_tool, get_stockfish_analysis_tool]
         )
