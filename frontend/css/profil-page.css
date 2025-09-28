@@ -176,7 +176,7 @@ nav > a.current {
 .game-history-content {
     padding: 1.2rem 1.4rem 1.6rem;
     display: flex;
-    flex-direction: column;
+    flex-direction: column-reverse;
     gap: 0.8rem;
     overflow-y: auto;
 }

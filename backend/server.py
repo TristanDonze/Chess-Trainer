@@ -572,7 +572,7 @@ class Server:
                 last_move = move
                 last_fen = fen
 
-                await screen.step("Analyze game", (idx + 1) / len(self.focused_game.history), info=f"Analyzing move {idx + 1}/{len(self.focused_game.history)}", eta_s=(len(self.focused_game.history) - idx) * 2)
+                await screen.step("Analyze game", (idx + 1) / len(self.focused_game.history), info=f"Analyzing move {idx + 1}/{len(self.focused_game.history)}")
 
         ctn = {
             "white_player": white_player,

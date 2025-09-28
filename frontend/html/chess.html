@@ -508,7 +508,7 @@
         new Audio('../media/game-start.mp3').play();
         is_game_analysis = true;
         send_message("analyze-game", {game: game}, true, "Loading game...");
-        wait_for_message("game-analyzed", timeout=50000, only_content=true).then((data) => {
+        wait_for_message("game-analyzed", timeout=100000, only_content=true).then((data) => {
             if (data === null) {
                 Toast.error("Failed to load game for analysis.");
                 return; // Timeout: error will be return by the server

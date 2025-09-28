@@ -181,6 +181,7 @@ nav > a.current {
 }
 
 .send-message-wrapper input {
+    box-shadow: none !important;
     width: 100%;
     border: none;
     background: transparent;
