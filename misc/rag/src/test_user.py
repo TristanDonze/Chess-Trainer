@@ -21,7 +21,7 @@ try:
     AUDIO_AVAILABLE = True
 except ImportError:
     AUDIO_AVAILABLE = False
-    print("⚠️ Audio dependencies not available. Install with: pip install sounddevice 'openai-agents[voice]'")
+    print("⚠️ Audio dependencies not available. Install with: pip install sounddevice '")
 
 
 class AudioRecorder:
@@ -130,7 +130,7 @@ async def test_voice_conversation():
     
     if not AUDIO_AVAILABLE:
         print("❌ Audio functionality not available")
-        print("Install requirements: pip install sounddevice 'openai-agents[voice]'")
+        print("Install requirements: pip install sounddevice'")
         return False
     
     # Initialize agent
@@ -376,7 +376,7 @@ async def main():
         return 0
     elif text_success:
         print("⚠️ Text functionality working, but voice unavailable.")
-        print("   Install requirements: pip install sounddevice 'openai-agents[voice]'")
+        print("   Install requirements: pip install sounddevice ")
         return 0
     else:
         print("❌ Some tests FAILED. Please check the errors above.")

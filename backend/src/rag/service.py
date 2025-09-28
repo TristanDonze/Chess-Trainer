@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import re
 import threading
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -13,6 +14,73 @@ from openai import OpenAI
 import weaviate
 from weaviate.classes.init import Auth
 import chess
+
+
+# Global Weaviate clients for RAG
+_weaviate_client = None
+_chess_collection = None
+
+
+def get_weaviate_client():
+    """Get or create Weaviate client with proper connection management"""
+    global _weaviate_client
+    
+    if _weaviate_client is None:
+        openai_api_key = os.environ.get("OPENAI_API_KEY", "")
+        weaviate_url = os.environ.get("WEAVIATE_REST_ENDPOINT", "")
+        weaviate_api_key = os.environ.get("WEAVIATE_API_KEY", "")
+        
+        headers = {"X-OpenAI-Api-Key": openai_api_key}
+        
+        _weaviate_client = weaviate.connect_to_weaviate_cloud(
+            cluster_url=weaviate_url,
+            auth_credentials=Auth.api_key(weaviate_api_key),
+            skip_init_checks=True,
+            headers=headers
+        )
+    
+    # Ensure connection is active
+    if not _weaviate_client.is_connected():
+        try:
+            _weaviate_client.connect()
+        except Exception as e:
+            print(f"Warning: Could not reconnect to Weaviate: {e}")
+    
+    return _weaviate_client
+
+
+def get_chess_collection():
+    """Get chess knowledge collection"""
+    global _chess_collection
+    
+    if _chess_collection is None:
+        client = get_weaviate_client()
+        _chess_collection = client.collections.get("ChessKnowledgeBase")
+    
+    return _chess_collection
+
+
+def retrieve_chess_knowledge(query: str, limit: int = 2) -> List[Dict[str, Any]]:
+    """
+    Retrieve relevant chess knowledge from the knowledge base.
+    
+    Args:
+        query (str): The query string to search for relevant information.
+        limit (int): Number of results to return
+        
+    Returns:
+        List[Dict]: The retrieved information from the knowledge base.
+    """
+    try:
+        collection = get_chess_collection()
+        response = collection.query.near_text(
+            query=query,
+            limit=limit
+        )
+        return [obj.properties for obj in response.objects]
+    except Exception as e:
+        print(f"Error retrieving chess knowledge: {e}")
+        return []
 
 
 class RagServiceError(RuntimeError):
@@ -126,20 +194,38 @@ def _arrow_from_uci(uci: str, fen: Optional[str]) -> dict:
         "promotion": promo,
     }
 
+
+# Helper function to convert from misc/rag format to our RetrievedChunk format
+def _convert_rag_results_to_chunks(rag_results) -> List[RetrievedChunk]:
+    """Convert results from misc/rag retrieve_chess_knowledge to RetrievedChunk format"""
+    chunks = []
+    if isinstance(rag_results, list):
+        for result in rag_results:
+            if isinstance(result, dict):
+                chunk = RetrievedChunk(
+                    title=result.get("title") or result.get("heading"),
+                    text=result.get("content") or result.get("text") or "",
+                    source=result.get("source"),
+                    url=result.get("url") or result.get("link"),
+                )
+                if chunk.text:  # Only add if there's actual content
+                    chunks.append(chunk)
+    return chunks
+
+
 class TheoryAssistant:
-    """Thin wrapper around Weaviate + OpenAI to answer chess theory questions."""
+    """RAG-enhanced chess theory assistant."""
 
     _env_loaded = False
     _env_lock = threading.Lock()
 
     def __init__(self) -> None:
         self._openai: Optional[OpenAI] = None
-        self._weaviate: Optional["weaviate.WeaviateClient"] = None
-        self._collection = None
-        self._model = os.getenv("THEORY_ASSISTANT_MODEL", "gpt-4.1-mini")
-        self._use_rag = os.getenv("THEORY_USE_RAG", "false").lower() in {"1", "true", "yes", "on"}
-
+        self._model = os.getenv("THEORY_ASSISTANT_MODEL", "gpt-4o-mini")
+        self._use_rag = os.getenv("THEORY_USE_RAG", "true").lower() in {"1", "true", "yes", "on"}
+        
         self._ensure_env_loaded()
+        print(f"✅ TheoryAssistant initialized (RAG enabled: {self._use_rag})")
 
     def _ensure_env_loaded(self) -> None:
         # Load env only once across instances.
@@ -162,62 +248,23 @@ class TheoryAssistant:
             self._openai = OpenAI(api_key=api_key)
         return self._openai
 
-    def _ensure_collection(self):
-        if not self._use_rag:
-            return None
 
-        if self._collection is not None:
-            return self._collection
-
-        url = os.getenv("WEAVIATE_REST_ENDPOINT")
-        api_key = os.getenv("WEAVIATE_API_KEY")
-        openai_key = os.getenv("OPENAI_API_KEY")
-
-        if not url or not api_key or not openai_key:
-            raise RagServiceError("Missing Weaviate configuration in environment variables")
-
-        headers = {"X-OpenAI-Api-Key": openai_key}
-
-        try:
-            self._weaviate = weaviate.connect_to_weaviate_cloud(
-                cluster_url=url,
-                auth_credentials=Auth.api_key(api_key),
-                skip_init_checks=True,
-                headers=headers,
-            )
-        except Exception as exc:  # pragma: no cover - network path
-            raise RagServiceError(f"Unable to connect to Weaviate: {exc}") from exc
-
-        try:
-            self._collection = self._weaviate.collections.get("ChessKnowledgeBase")
-        except Exception as exc:  # pragma: no cover - network path
-            raise RagServiceError(f"Unable to access ChessKnowledgeBase collection: {exc}") from exc
-
-        return self._collection
 
     def _retrieve_context(self, query: str, limit: int = 4) -> List[RetrievedChunk]:
-        collection = self._ensure_collection()
-        if collection is None:
+        """Retrieve context using RAG implementation."""
+        if not self._use_rag:
+            print(f"🚫 RAG: disabled")
             return []
+            
         try:
-            response = collection.query.near_text(query=query, limit=limit)
-        except Exception as exc:  # pragma: no cover - network path
-            raise RagServiceError(f"Weaviate query failed: {exc}") from exc
-
-        chunks: List[RetrievedChunk] = []
-        for obj in getattr(response, "objects", []) or []:
-            props: Dict[str, Any] = getattr(obj, "properties", {}) or {}
-            text = props.get("content") or props.get("text") or ""
-            if not text:
-                continue
-            chunk = RetrievedChunk(
-                title=props.get("title") or props.get("heading"),
-                text=text,
-                source=props.get("source"),
-                url=props.get("url") or props.get("link"),
-            )
-            chunks.append(chunk)
-        return chunks
+            print(f"🔍 RAG: querying '{query[:50]}...' (limit={limit})")
+            rag_results = retrieve_chess_knowledge(query, limit)
+            chunks = _convert_rag_results_to_chunks(rag_results)
+            print(f"✅ RAG: retrieved {len(chunks)} chunks from {len(rag_results)} results")
+            return chunks
+        except Exception as e:
+            print(f"❌ RAG retrieval failed: {e}")
+            return []
 
     def _build_prompt(self, question: str, fen: Optional[str], context: List[RetrievedChunk]) -> List[Dict[str, Any]]:
         system_instructions = (
@@ -276,8 +323,9 @@ class TheoryAssistant:
                     parts.append(f"URL: {chunk.url}")
                 context_lines.append("\n".join(parts))
         else:
-            print("RAG: no context retrieved")
-            context_lines.append("No external context was retrieved; rely on core chess knowledge (or other sources at your disposal).")
+            rag_status = "disabled" if not self._use_rag else "no results"
+            print(f"RAG: {rag_status} (use_rag={self._use_rag})")
+            context_lines.append("No external context was retrieved; rely on core chess knowledge.")
 
         user_prompt = (
             "\n\n".join(context_lines)
@@ -290,46 +338,102 @@ class TheoryAssistant:
             {"role": "user", "content": user_prompt},
         ]
 
+    def _create_rag_tools(self) -> List[Dict[str, Any]]:
+        """Create function tools for RAG-enhanced chat completion."""
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "retrieve_chess_knowledge",
+                    "description": "Retrieve relevant chess knowledge from the knowledge base to provide more accurate and detailed answers.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "query": {
+                                "type": "string",
+                                "description": "The query string to search for relevant chess information"
+                            },
+                            "limit": {
+                                "type": "integer", 
+                                "description": "Number of results to return (default: 2)",
+                                "default": 2
+                            }
+                        },
+                        "required": ["query"]
+                    }
+                }
+            }
+        ]
+
+    def _execute_function_call(self, function_call: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute a function call and return the result."""
+        function_name = function_call.get("name")
+        function_args = function_call.get("arguments", "{}")
+        
+        if isinstance(function_args, str):
+            args = json.loads(function_args)
+        else:
+            args = function_args
+        
+        if function_name == "retrieve_chess_knowledge":
+            try:
+                rag_results = retrieve_chess_knowledge(args.get("query", ""), args.get("limit", 2))
+                chunks = _convert_rag_results_to_chunks(rag_results)
+                # Convert chunks to a simple format for the AI
+                result = []
+                for chunk in chunks:
+                    chunk_data = {
+                        "text": chunk.text,
+                        "title": chunk.title,
+                        "source": chunk.source,
+                        "url": chunk.url
+                    }
+                    result.append(chunk_data)
+                return {"results": result}
+            except Exception as e:
+                return {"results": [], "error": str(e)}
+        else:
+            raise ValueError(f"Unknown function: {function_name}")
+
     def answer(self, question: str, fen: Optional[str] = None, *, request_id: Optional[str] = None) -> Dict[str, Any]:
         question_clean = question.strip()
         if not question_clean:
             raise RagServiceError("Cannot answer an empty question")
 
+        # Retrieve chess knowledge using RAG
         context: List[RetrievedChunk] = []
         if self._use_rag:
             try:
                 context = self._retrieve_context(question_clean)
-            except RagServiceError:
+            except Exception:
                 context = []
 
+        # Build enhanced prompt with RAG context
         messages = self._build_prompt(question_clean, fen, context)
 
+        # Get OpenAI response
         client = self._ensure_openai()
         try:
-            response = client.responses.create(model=self._model, input=messages)
-        except Exception as exc:  # pragma: no cover
+            response = client.chat.completions.create(model=self._model, messages=messages)
+        except Exception as exc:
             raise RagServiceError(f"OpenAI response failed: {exc}") from exc
 
-        output_text = getattr(response, "output_text", None)
+        output_text = response.choices[0].message.content
         if not output_text:
             raise RagServiceError("OpenAI returned an empty response")
 
-        # Split main text vs INSTRUCTIONS block
-        main_text, instr_block = _split_text_and_instructions(output_text)
-        print(instr_block)
-        references: List[Dict[str, Optional[str]]] = []
-        if context:
-            for idx, chunk in enumerate(context, start=1):
-                references.append({
-                    "label": f"[{idx}] {chunk.title}" if chunk.title else f"Source [{idx}]",
-                    "source": chunk.source,
-                    "url": chunk.url,
-                })
+        # Process response to expected format
+        return self._process_response(output_text, fen, request_id, context)
 
+    def _process_response(self, raw_response: str, fen: Optional[str], request_id: Optional[str], context: List[RetrievedChunk]) -> Dict[str, Any]:
+        """Process RAG agent response to match expected format"""
+        # Split main text vs INSTRUCTIONS block
+        main_text, instr_block = _split_text_and_instructions(raw_response)
+        
         # Parse INSTRUCTIONS (FEN, moves[], red_squares[])
         parsed = _parse_instruction_block(instr_block)
-        instr_fen   = parsed.get('fen')
-        raw_moves   = parsed.get('moves', [])
+        instr_fen = parsed.get('fen')
+        raw_moves = parsed.get('moves', [])
         red_squares = parsed.get('red_squares', [])
         green_squares = parsed.get('green_squares', [])
 
@@ -340,33 +444,45 @@ class TheoryAssistant:
         if raw_moves:
             move_dicts = [_arrow_from_uci(u, effective_fen) for u in raw_moves]
         elif effective_fen:
-            # Fallback: if the model didn't provide arrows, try extracting one legal recommendation from text
-            fb = self._extract_recommended_move(output_text, effective_fen)
+            # Fallback: try extracting one legal recommendation from text
+            fb = self._extract_recommended_move(raw_response, effective_fen)
             if fb:
                 move_dicts = [fb]
 
         # Back-compat: accept old 'Suggested position (FEN): ...' if no instr FEN
         showcase_fen = instr_fen
         if not showcase_fen:
-            m_old = re.search(r"Suggested position \(FEN\):\s*([^\s]+)", output_text)
+            m_old = re.search(r"Suggested position \(FEN\):\s*([^\s]+)", raw_response)
             if m_old:
                 cand = m_old.group(1).strip()
                 if _is_valid_fen(cand):
                     showcase_fen = cand
 
         instructions = {
-            "showcase_fen": showcase_fen,     # str | None
-            "red_squares": red_squares,       # list[str]
-            "green_squares": green_squares,   # list[str]
-            "moves": move_dicts,              # list[dict], can be empty
+            "showcase_fen": showcase_fen,
+            "red_squares": red_squares,
+            "green_squares": green_squares,
+            "moves": move_dicts,
         }
+
+        # Build references from retrieved context
+        references: List[Dict[str, Optional[str]]] = []
+        if context:
+            for idx, chunk in enumerate(context, start=1):
+                references.append({
+                    "label": f"[{idx}] {chunk.title}" if chunk.title else f"Source [{idx}]",
+                    "source": chunk.source,
+                    "url": chunk.url,
+                })
 
         return {
             "id": request_id,
-            "answer": main_text.strip(),   # instructions block removed from the human text
+            "answer": main_text.strip(),
             "references": references,
             "instructions": instructions,
         }
+
+
 
     def _extract_recommended_move(self, text: str, fen: Optional[str]) -> Optional[Dict[str, Any]]:
         if not fen:
