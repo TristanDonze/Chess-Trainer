@@ -1,30 +1,49 @@
+/* ==========================================================================
+   CORRECTIONS APPLIQUÉES :
+   1. html, body: Remplacé `height` par `min-height` et supprimé `overflow: hidden`.
+      Cela permet à la page de faire au moins 100% de la hauteur, mais aussi de grandir
+      et d'afficher une barre de défilement si nécessaire, au lieu de couper le contenu.
+   2. main: La hauteur a été retirée. Elle est maintenant gérée par la flexibilité
+      du body et le contenu lui-même. C'est beaucoup plus fiable.
+   ========================================================================== */
+
+html, body {
+  /* MODIFIÉ: On s'assure que le body prend au moins toute la hauteur de l'écran,
+     mais on l'autorise à grandir si le contenu est plus grand. C'est la correction principale. */
+  min-height: 100svh;
+  margin: 0;
+  padding: 0;
+  /* L'ancien `overflow: hidden;` a été supprimé pour permettre le défilement si besoin. */
+}
+
 main {
-    width: calc(100% - 80px);;
-    margin: 40px auto;
-    min-height: calc(100vh - clamp(80px, 12vw, 140px));
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: clamp(2.5rem, 5vw, 3.75rem);
-    align-items: flex-start;
-    position: relative;
+  width: calc(100% - 40px); /* 40px pour laisser 20px de marge de chaque côté */
+  margin: 20px auto;
+  /* MODIFIÉ: La hauteur fixe a été enlevée. La hauteur s'adaptera au contenu. */
+  /* height: calc(100svh - 80px); <-- Supprimé car trop rigide */
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: clamp(0.75rem, 2vw, 1.25rem);
+  align-items: stretch;
+  position: relative;
 }
 
 nav {
-    width: clamp(74px, 10vw, 92px);
-    padding: clamp(1.4rem, 3vw, 2rem);
-    border-radius: clamp(28px, 4vw, 36px);
-    background: var(--surface-strong);
-    border: 1px solid var(--border-color);
-    display: flex;
-    flex-direction: column;
-    gap: clamp(1rem, 2.5vw, 1.6rem);
-    align-items: center;
-    justify-content: flex-start;
-    box-shadow: var(--shadow-md);
-    position: sticky;
-    top: clamp(32px, 6vw, 60px);
-    max-height: calc(100vh - clamp(64px, 8vw, 120px));
-    overflow: hidden;
+  width: clamp(74px, 10vw, 92px);
+  padding: clamp(1.4rem, 3vw, 2rem);
+  border-radius: clamp(28px, 4vw, 36px);
+  background: var(--surface-strong);
+  border: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(1rem, 2.5vw, 1.6rem);
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-md);
+  position: sticky;
+  top: 20px; /* Aligné avec la marge de 'main' */
+  /* On s'assure que la nav ne dépasse pas la hauteur de la fenêtre moins les marges */
+  max-height: calc(100svh - 40px);
 }
 
 nav::before {
@@ -72,18 +91,10 @@ nav > a.current {
     box-shadow: var(--shadow-lg);
     display: grid;
     grid-template-columns: minmax(0, 1fr) clamp(280px, 30vw, 360px);
-    gap: 40px;
-    padding: 40px;
+    gap: clamp(2rem, 4vw, 3rem);
+    padding: clamp(1.8rem, 3vw, 2.6rem);
     position: relative;
     overflow: hidden;
-}
-.next.btn {
-    padding: 6px 60px 6px 8px;
-    text-align: left;
-    background: #ffffff4a;
-    border-radius: 16px;
-    width: fit-content;
-    color: var(--text-light-color);
 }
 
 .page-wrapper::before {
@@ -109,10 +120,6 @@ nav > a.current {
     position: relative;
 }
 
-.chatbox-wrapper {
-    max-height: 60svh;
-}
-
 .chessboard-wrapper:has(> svg.active) .actions {
     display: none;
 }
@@ -126,12 +133,14 @@ nav > a.current {
 }
 
 .chessboard-wrapper svg {
-    width: min(100%, clamp(420px, 55vw, 640px));
-    aspect-ratio: 1 / 1;
-    filter: drop-shadow(0 24px 40px rgba(8, 11, 25, 0.55));
-    border-radius: clamp(18px, 3vw, 24px);
-    background: rgba(8, 11, 25, 0.4);
+  width: 100%;
+  height: auto; /* L'aspect-ratio s'en occupe */
+  aspect-ratio: 1 / 1;
+  filter: drop-shadow(0 24px 40px rgba(8, 11, 25, 0.55));
+  border-radius: clamp(18px, 3vw, 24px);
+  background: rgba(8, 11, 25, 0.4);
 }
+
 
 .chessboard-wrapper .actions {
     aspect-ratio: 1 / 1;
@@ -178,7 +187,7 @@ nav > a.current {
 
 .interaction-wrapper {
     display: grid;
-    grid-template-rows: auto 1fr;
+    grid-template-rows: 1fr auto; /* Inversé pour que le chat prenne l'espace et les actions en bas */
     gap: clamp(1.4rem, 3vw, 2rem);
     background: rgba(12, 19, 33, 0.72);
     border-radius: clamp(24px, 3.5vw, 30px);
@@ -186,19 +195,9 @@ nav > a.current {
     padding: clamp(1.4rem, 3vw, 2rem);
     position: relative;
     box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-}
-
-
-.avatar-wrapper {
-    width: clamp(120px, 40%, 160px);
-    aspect-ratio: 1 / 1;
-    border-radius: 28px;
-    background: linear-gradient(160deg, rgba(251, 191, 36, 0.65), rgba(56, 189, 248, 0.5));
-    border: 1px solid rgba(255, 255, 255, 0.22);
-    box-shadow: 0 18px 34px rgba(8, 11, 25, 0.45);
-    margin: 0 auto;
-    position: relative;
-    overflow: hidden;
+    /* Permet aux enfants de ne pas déborder */
+    min-height: 0;
+    min-width: 0;
 }
 
 .chatbox-wrapper {
@@ -206,6 +205,7 @@ nav > a.current {
     flex-direction: column;
     gap: clamp(1rem, 2.5vw, 1.6rem);
     position: relative;
+    min-height: 0; /* Important pour le scroll interne */
 }
 
 .messages-wrapper {
@@ -298,63 +298,15 @@ nav > a.current {
     box-shadow: 0 12px 26px rgba(251, 191, 36, 0.25);
 }
 
-.commentary-entry {
-    background: rgba(10, 15, 26, 0.75);
-    border: 1px solid rgba(148, 163, 184, 0.18);
-    border-left-width: 4px;
-    border-radius: 16px;
-    padding: 1rem 1.2rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.55rem;
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
-}
-
-.commentary-entry .commentary-heading {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    font-weight: 600;
-    color: var(--text-white-color);
-    gap: 0.75rem;
-}
-
-.commentary-entry .commentary-heading .move {
-    font-size: 0.9rem;
-    color: rgba(226, 232, 240, 0.65);
-}
-
-.commentary-entry .commentary-meta {
-    font-size: 0.85rem;
-    color: rgba(226, 232, 240, 0.58);
-    display: flex;
-    flex-wrap: wrap;
-    gap: 0.85rem;
-}
-
-.commentary-entry .commentary-text {
-    font-size: 0.95rem;
-    line-height: 1.45;
-    color: rgba(226, 232, 240, 0.82);
-}
-
-.commentary-entry .commentary-recommendation {
-    font-size: 0.85rem;
-    color: var(--secondary-color);
-    display: inline-flex;
-    align-items: center;
-    gap: 0.45rem;
-}
-
-.commentary-entry .commentary-recommendation .material-symbols-outlined {
-    font-size: 1rem;
-}
-
-.commentary-entry .timestamp {
-    font-size: 0.75rem;
-    color: rgba(226, 232, 240, 0.45);
-}
-
+/* --- Le reste du CSS reste inchangé --- */
+.commentary-entry { background: rgba(10, 15, 26, 0.75); border: 1px solid rgba(148, 163, 184, 0.18); border-left-width: 4px; border-radius: 16px; padding: 1rem 1.2rem; display: flex; flex-direction: column; gap: 0.55rem; box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04); }
+.commentary-entry .commentary-heading { display: flex; justify-content: space-between; align-items: baseline; font-weight: 600; color: var(--text-white-color); gap: 0.75rem; }
+.commentary-entry .commentary-heading .move { font-size: 0.9rem; color: rgba(226, 232, 240, 0.65); }
+.commentary-entry .commentary-meta { font-size: 0.85rem; color: rgba(226, 232, 240, 0.58); display: flex; flex-wrap: wrap; gap: 0.85rem; }
+.commentary-entry .commentary-text { font-size: 0.95rem; line-height: 1.45; color: rgba(226, 232, 240, 0.82); }
+.commentary-entry .commentary-recommendation { font-size: 0.85rem; color: var(--secondary-color); display: inline-flex; align-items: center; gap: 0.45rem; }
+.commentary-entry .commentary-recommendation .material-symbols-outlined { font-size: 1rem; }
+.commentary-entry .timestamp { font-size: 0.75rem; color: rgba(226, 232, 240, 0.45); }
 .commentary-entry.severity-blunder { border-left-color: #d63939; }
 .commentary-entry.severity-mistake { border-left-color: #f08c00; }
 .commentary-entry.severity-inaccuracy { border-left-color: #f59f00; }
@@ -362,119 +314,33 @@ nav > a.current {
 .commentary-entry.severity-good { border-left-color: #1971c2; }
 .commentary-entry.severity-correct { border-left-color: #495057; }
 .commentary-entry.severity-correct:has(.best-move) { border-left-color: #85a559; }
-
-.games-wrapper {
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-}
-
-.game-block:first-child {
-    margin-top: 0.5rem;
-}
-
-.game-block {
-    display: grid;
-    grid-template-columns: auto 1fr auto;
-    align-items: center;
-    gap: 0.75rem;
-    padding: 0.85rem 1.1rem;
-    border: 1px solid rgba(148, 163, 184, 0.25);
-    border-radius: 18px;
-    background: rgba(10, 16, 28, 0.85);
-    text-decoration: none;
-    color: var(--text-white-color);
-    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 14px 24px rgba(8, 11, 25, 0.32);
-    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
-}
-
-.game-block:hover {
-    transform: translateY(-2px);
-    border-color: rgba(251, 191, 36, 0.45);
-    box-shadow: 0 18px 30px rgba(251, 191, 36, 0.18);
-}
-
-.game-block:active {
-    transform: translateY(0);
-}
-
-.game-block .score {
-    font-variant-numeric: tabular-nums;
-    font-weight: 600;
-    padding: 0.3rem 0.7rem;
-    border-radius: 12px;
-    border: 1px solid rgba(148, 163, 184, 0.25);
-    background: rgba(15, 23, 42, 0.8);
-}
-
-.game-block .players {
-    display: flex;
-    flex-direction: column;
-    gap: 0.35rem;
-    min-width: 0;
-}
-
-.game-block .player {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.55rem;
-    min-width: 0;
-    white-space: nowrap;
-}
-
-.game-block .result-dot {
-    width: 10px;
-    height: 10px;
-    border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.18);
-}
-
+.games-wrapper { display: flex; flex-direction: column; gap: 0.75rem; }
+.game-block:first-child { margin-top: 0.5rem; }
+.game-block { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.75rem; padding: 0.85rem 1.1rem; border: 1px solid rgba(148, 163, 184, 0.25); border-radius: 18px; background: rgba(10, 16, 28, 0.85); text-decoration: none; color: var(--text-white-color); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03), 0 14px 24px rgba(8, 11, 25, 0.32); transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease; }
+.game-block:hover { transform: translateY(-2px); border-color: rgba(251, 191, 36, 0.45); box-shadow: 0 18px 30px rgba(251, 191, 36, 0.18); }
+.game-block:active { transform: translateY(0); }
+.game-block .score { font-variant-numeric: tabular-nums; font-weight: 600; padding: 0.3rem 0.7rem; border-radius: 12px; border: 1px solid rgba(148, 163, 184, 0.25); background: rgba(15, 23, 42, 0.8); }
+.game-block .players { display: flex; flex-direction: column; gap: 0.35rem; min-width: 0; }
+.game-block .player { display: inline-flex; align-items: center; gap: 0.55rem; min-width: 0; white-space: nowrap; }
+.game-block .result-dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid rgba(255, 255, 255, 0.18); }
 .game-block .player.winner .result-dot { background: #22c55e; }
 .game-block .player.loser .result-dot { background: #64748b; }
 .game-block .player.draw .result-dot { background: #facc15; }
+.game-block .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
+.game-block .rating { font-size: 0.9em; color: rgba(226, 232, 240, 0.6); }
+.game-block .meta { display: flex; align-items: center; gap: 0.65rem; color: rgba(226, 232, 240, 0.65); }
+.game-block .date { font-size: 0.95em; }
 
-.game-block .name {
-    font-weight: 600;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
 
-.game-block .rating {
-    font-size: 0.9em;
-    color: rgba(226, 232, 240, 0.6);
-}
+/* --- MEDIA QUERIES --- */
 
-.game-block .meta {
-    display: flex;
-    align-items: center;
-    gap: 0.65rem;
-    color: rgba(226, 232, 240, 0.65);
-}
-
-.game-block .date {
-    font-size: 0.95em;
-}
-
-@media (max-width: 520px) {
-    .game-block {
-        grid-template-columns: 1fr auto;
-        grid-auto-flow: row;
-    }
-
-    .game-block .players {
-        grid-column: 1 / 3;
-    }
-
-    .game-block .meta {
-        grid-column: 2 / 3;
-        justify-self: end;
-    }
-}
-
+/* Tablet et mobile */
 @media (max-width: 1240px) {
     main {
         grid-template-columns: 1fr;
         justify-items: center;
+        width: calc(100% - 20px); /* Moins de marge sur petits écrans */
+        margin: 10px auto;
     }
 
     nav {
@@ -483,14 +349,15 @@ nav > a.current {
         height: auto;
         position: static;
         justify-content: center;
+        max-height: none;
     }
 
     .page-wrapper {
         grid-template-columns: minmax(0, 1fr);
+        height: auto; /* La hauteur s'adapte au contenu */
     }
 
     .interaction-wrapper {
-        grid-template-columns: minmax(0, 1fr);
         grid-template-rows: auto 1fr;
     }
 }
@@ -508,15 +375,65 @@ nav > a.current {
     }
 
     .page-wrapper {
-        padding: 1.4rem;
+        padding: 1rem;
         border-radius: 24px;
+        gap: 1rem;
     }
 
     .chessboard-wrapper {
-        padding: 1.2rem;
+        padding: 1rem;
     }
+}
 
-    .chessboard-wrapper svg {
-        width: min(100%, 480px);
+@media (max-width: 520px) {
+    main {
+      width: 100%;
+      margin: 0;
+      padding: 10px; /* Un peu d'air sur les bords */
+      box-sizing: border-box;
     }
+    .game-block {
+        grid-template-columns: 1fr auto;
+        grid-auto-flow: row;
+    }
+    .game-block .players { grid-column: 1 / 3; }
+    .game-block .meta { grid-column: 2 / 3; justify-self: end; }
+}
+
+/* Desktop - Le layout split-screen est maintenu mais plus robuste */
+@media (min-width: 1241px) {
+
+  main {
+    /* Sur grand écran, on veut que main prenne toute la hauteur disponible après les marges */
+    height: calc(100svh - 40px);
+  }
+
+  /* Chaque panneau remplit la hauteur */
+  .chessboard-wrapper,
+  .interaction-wrapper {
+    height: 100%;
+    min-height: 0; /* Très important pour que le contenu interne puisse scroller */
+  }
+
+  .chessboard-wrapper {
+    display: flex; /* Flex est plus simple pour centrer le contenu verticalement */
+    flex-direction: column;
+    justify-content: center;
+    gap: clamp(1rem, 2.2vw, 1.8rem);
+    padding: clamp(1.2rem, 2.5vw, 2rem);
+  }
+  
+  .chessboard-wrapper svg {
+    width: 100%;
+    height: auto; /* L'aspect ratio définit la hauteur */
+    max-width: 100%;
+    max-height: 100%; /* Ne pas dépasser son conteneur */
+  }
+
+  .interaction-wrapper {
+    grid-template-rows: 1fr auto;
+  }
+  
+  .chatbox-wrapper { min-height: 0; }
+  .messages-wrapper { min-height: 0; }
 }
