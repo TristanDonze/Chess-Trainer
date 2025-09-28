@@ -1,15 +1,45 @@
-main {
-    width: min(1100px, 92vw);
-    margin: clamp(48px, 7vw, 96px) auto;
-    min-height: calc(100vh - clamp(84px, 10vw, 140px));
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-    gap: clamp(2.5rem, 6vw, 4rem);
+body {
+    display: flex;
+    justify-content: center;
     align-items: center;
+    min-height: 100vh;
+    margin: 0;
+    padding: 2rem 0;
+    box-sizing: border-box;
+}
+
+main {
+    display: flex;
+    gap: clamp(2.5rem, 6vw, 4rem);
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
     position: relative;
     isolation: isolate;
 }
 
+.hero{
+    display: flex;
+    flex-direction: column;
+}
+
+.hero .above {
+    font-size: clamp(2.4rem, 6vw, 3.4rem);
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    color: var(--text-white-color);
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    margin-bottom: 1rem;
+}
+
+.hero .bellow {
+    display: flex;
+    flex-direction: row;
+    justify-content: space-around;
+    
+}
 main::after {
     content: "";
     position: absolute;
@@ -23,7 +53,7 @@ main::after {
 }
 
 main .avatar-wrapper {
-    width: min(420px, 70vw);
+    width: clamp(320px, 35vw, 420px);
     aspect-ratio: 1 / 1;
     border-radius: clamp(32px, 6vw, 46px);
     background:
@@ -39,6 +69,7 @@ main .avatar-wrapper {
     justify-content: flex-end;
     gap: clamp(1.2rem, 3vw, 1.8rem);
     padding: clamp(1.8rem, 3vw, 2.4rem);
+    margin-right: 10px;
 }
 
 main .avatar-wrapper::after {
@@ -93,7 +124,8 @@ main .avatar-wrapper::after {
 }
 
 nav {
-    align-self: stretch;
+    width: clamp(320px, 35vw, 420px);
+    aspect-ratio: 1 / 1;
     background: var(--surface-strong);
     border: 1px solid var(--border-color);
     border-radius: clamp(28px, 5vw, 36px);
@@ -104,6 +136,7 @@ nav {
     justify-content: center;
     position: relative;
     overflow: hidden;
+    margin-left: 10px;
 }
 
 nav::before {
@@ -208,13 +241,7 @@ nav > div.not-connected .nav-link {
 
 @media (max-width: 920px) {
     main {
-        margin-top: clamp(36px, 6vw, 60px);
-        grid-template-columns: 1fr;
-        justify-items: center;
-    }
-
-    nav {
-        width: 100%;
+        flex-direction: column;
     }
 }
 
@@ -222,12 +249,10 @@ nav > div.not-connected .nav-link {
     main {
         gap: 2rem;
     }
-
     nav {
         padding: 1.4rem;
         border-radius: 24px;
     }
-
     nav > div .block {
         padding: 0.75rem 1rem;
     }

@@ -1,27 +1,37 @@
-main {
-    width: calc(100% - 80px);;
-    margin: 40px auto;
-    min-height: calc(100vh - clamp(80px, 12vw, 140px));
-    display: grid;
-    grid-template-columns: auto 1fr;
-    gap: clamp(2.4rem, 5vw, 3.6rem);
-    align-items: flex-start;
+html, body {
+  min-height: 100svh;
+  margin: 0;
+  padding: 0;
 }
 
-nav {
-    width: clamp(74px, 10vw, 92px);
-    padding: clamp(1.4rem, 3vw, 2rem);
-    border-radius: clamp(28px, 4vw, 36px);
-    background: var(--surface-strong);
-    border: 1px solid var(--border-color);
-    display: flex;
-    flex-direction: column;
-    gap: clamp(1rem, 2.6vw, 1.6rem);
-    align-items: center;
-    box-shadow: var(--shadow-md);
-    position: sticky;
-    top: clamp(32px, 6vw, 60px);
+main {
+  width: calc(100% - 40px);
+  margin: 20px auto;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: clamp(0.75rem, 2vw, 1.25rem);
+  align-items: stretch;
+  position: relative;
 }
+
+
+nav {
+  width: clamp(74px, 10vw, 92px);
+  padding: clamp(1.4rem, 3vw, 2rem);
+  border-radius: clamp(28px, 4vw, 36px);
+  background: var(--surface-strong);
+  border: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: clamp(1rem, 2.5vw, 1.6rem);
+  align-items: center;
+  justify-content: center;
+  box-shadow: var(--shadow-md);
+  position: sticky;
+  top: 20px; 
+  max-height: calc(100svh - 40px);
+}
+
 
 nav::before {
     content: "";
