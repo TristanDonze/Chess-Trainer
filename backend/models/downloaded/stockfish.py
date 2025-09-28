@@ -90,4 +90,4 @@ class StockfishAI(Engine):
         else:
             out['black_win_pct'] = 100
             out['black_mate_in'] = mate_moves
-        return evaluation
+        return out

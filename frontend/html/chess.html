@@ -35,8 +35,11 @@
                     <button class="material-symbols-outlined" title="Lecon with puzzles">lightbulb</button>
                 </div>
                 <svg id="board">
-                    <!-- chessboard svg -->
                 </svg>
+                <div id="key-move-indicator" style="text-align:center; font-weight:bold; color:black; margin-top:8px;">
+                    Key move
+                </div>
+
 
                 <div class="game-tools">
                     <button class="material-symbols-outlined" title="Previous move" onclick="previous_move()">skip_previous</button>
@@ -75,6 +78,7 @@
     let current_move_idx = 0;
     let current_turn = 'white';
     let is_game_analysis = false;
+    let auto_play_interval = null;
 
     const messagesWrapper = document.querySelector('.messages-wrapper');
     const audioToggleText = document.querySelector('.switch-to-text');
@@ -372,6 +376,7 @@
             // end game sound + clear interval
             new Audio('../media/game-end.mp3').play();
             clearInterval(auto_play_interval);
+            auto_play_interval = null;
             return;
         }
         if (current_game.moves[current_turn]?.length > current_move_idx) {
@@ -403,6 +408,13 @@
 
             draw_from_fen(current_game.moves[current_turn][current_move_idx].fen);
 
+            const indicator = document.getElementById("key-move-indicator");
+            if (current_game.moves[current_turn][current_move_idx].key_move) {
+                indicator.style.color = "red";
+            } else {
+                indicator.style.color = "black";
+            }
+
             if (current_game.moves[current_turn][current_move_idx].king_in_check) {
                 new Audio('../media/move-check.mp3').play();
             }
@@ -427,6 +439,7 @@
             ) {
                 // end of game
                 clearInterval(auto_play_interval);
+                auto_play_interval = null;
                 
                 new Audio('../media/game-end.mp3').play();
                 winning_side = last_turn === 'white' ? current_game.moves['black'][last_move_idx].winner : current_game.moves['white'][last_move_idx].winner;
@@ -465,6 +478,7 @@
 
         // clear interval if any
         clearInterval(auto_play_interval);
+        auto_play_interval = null;
         const whites = current_game.moves?.white || [];
         const blacks = current_game.moves?.black || [];
 
@@ -520,7 +534,7 @@
     }
 
     function start_auto_play() {
-        if (!is_game_analysis || !current_game) return;
+        if (!is_game_analysis || !current_game || auto_play_interval) return;
         auto_play_interval = setInterval(() => {
             next_move();
         }, 800);
@@ -528,6 +542,7 @@
 
     function pause_auto_play() {
         clearInterval(auto_play_interval);
+        auto_play_interval = null;
     }
 
 </script>

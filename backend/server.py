@@ -374,17 +374,20 @@ class Server:
             "black": []
         }
 
-
         self.focused_game.play(Player("White", False), Player("Black", False)) # to set the players (not IA)
 
         async with protocol.LoadingScreen(self.socket, client) as screen:
-            await screen.init(["Analyze gamme"])
-            await screen.step("Analyze gamme", 0)
+            await screen.init(["Analyze game"])
+            await screen.step("Analyze game", 0)
 
+            THRESHOLD = 15 # winrate change threshold to consider a move to be.a key move
+
+            last_white_winrate = 50
             for idx, move in enumerate(self.focused_game.history):
                 self.focused_game.move(move)
 
                 evaluation = stockfish.evaluate(self.focused_game)
+                dx = (evaluation["white_win_pct"] or 0) - last_white_winrate  # todo handle None case (e.g. mate found)
                 moves["white" if idx % 2 == 0 else "black"].append({
                     "move": move.uci().upper(),
                     "fen": self.focused_game.fen(),
@@ -396,10 +399,15 @@ class Server:
                     "king_in_check": self.focused_game.king_in_check[chess.WHITE] or self.focused_game.king_in_check[chess.BLACK],
                     "draw": self.focused_game.draw,
                     "piece": str(self.focused_game.get_piece(chess.square_name(move.to_square).upper())),
+                    "key_move": abs(dx) >= THRESHOLD,
                     **evaluation
                 })
+                last_move = moves["white" if idx % 2 == 0 else "black"][-1]
+                print(f"{"White" if idx % 2 == 0 else "Black"} Last move : {last_move["from"]} -> {last_move["to"]} ({last_move["move"]}), White Eval = {evaluation["white_win_pct"]}, Black Eval = {evaluation["black_win_pct"]}, dx = {dx}, {"Key move" if abs(dx) >= THRESHOLD else "Normal move"}")
 
-                await screen.step("Analyze gamme", (idx + 1) / len(self.focused_game.history), info=f"Analyzing move {idx + 1}/{len(self.focused_game.history)}", eta_s=(len(self.focused_game.history) - idx) * 2)
+                last_white_winrate = evaluation["white_win_pct"] or 0
+
+                await screen.step("Analyze game", (idx + 1) / len(self.focused_game.history), info=f"Analyzing move {idx + 1}/{len(self.focused_game.history)}", eta_s=(len(self.focused_game.history) - idx) * 2)
 
         ctn = {
             "moves": moves,
