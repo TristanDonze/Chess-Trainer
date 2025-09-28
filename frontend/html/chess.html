@@ -398,6 +398,7 @@
             next_move();
         }
         let comment = current_game.moves[current_turn][current_move_idx].comment
+        let audio = current_game.moves[current_turn][current_move_idx].audio
         previous_move();
 
         chat_send_message("Let's discuss about this position.", "assistant");
@@ -405,6 +406,23 @@
             comment || "No commentary available for this move.",
             "assistant"
         );
+        
+        // Play TTS audio if available and audio is enabled
+        if (audio && audio.b64 && commentaryAudioEnabled) {
+            const mime = audio.mime || 'audio/mpeg';
+            const src = `data:${mime};base64,${audio.b64}`;
+            try {
+                if (commentaryAudioPlayer) {
+                    commentaryAudioPlayer.pause();
+                }
+                commentaryAudioPlayer = new Audio(src);
+                commentaryAudioPlayer.play().catch((error) => {
+                    console.error('Unable to play TTS audio during analysis', error);
+                });
+            } catch (error) {
+                console.error('Error creating TTS audio during analysis', error);
+            }
+        }
     }
 
     function next_move() {

@@ -465,6 +465,7 @@ class Server:
                 dx = (evaluation["white_win_pct"] or last_white_winrate) - last_white_winrate  # todo handle None case (e.g. mate found)
                 
                 comment = None
+                comment_audio = None
                 if abs(dx) >= THRESHOLD:
                     comment = await self.get_comment_game_analysis(
                         fen=last_fen or fen,
@@ -474,7 +475,11 @@ class Server:
                         current_white_winrate=last_white_winrate
                     )
                     
-                moves["white" if idx % 2 == 0 else "black"].append({
+                    # Generate TTS audio for the comment if it exists
+                    if comment and comment.strip():
+                        comment_audio = await self._generate_comment_audio(comment)
+                    
+                move_data = {
                     "move": move.uci().upper(),
                     "fen": self.focused_game.fen(),
                     "from": chess.square_name(move.from_square).upper(),
@@ -488,7 +493,13 @@ class Server:
                     "key_move": abs(dx) >= THRESHOLD,
                     "comment": comment,
                     **evaluation
-                })
+                }
+                
+                # Add audio data if TTS was generated
+                if comment_audio:
+                    move_data["audio"] = comment_audio
+                    
+                moves["white" if idx % 2 == 0 else "black"].append(move_data)
                 last_last_white_winrate = last_white_winrate
                 last_white_winrate = evaluation["white_win_pct"] or last_white_winrate
                 last_dx = dx
@@ -1052,7 +1063,7 @@ class Server:
                 model=self._tts_model,
                 voice=self._tts_voice,
                 input=text,
-                speed=1.12,  
+                speed=1.05,  
             )
         except Exception:
             traceback.print_exc()
