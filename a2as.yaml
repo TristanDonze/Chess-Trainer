@@ -1,0 +1,590 @@
+manifest:
+  version: "0.1.2"
+  schema: https://a2as.org/cert/schema
+  subject:
+    name: tristandonze/chess-trainer
+    source: https://github.com/tristandonze/chess-trainer
+    branch: main
+    commit: "a377aa3f"
+    scope: [backend/src/rag/service.py, misc/rag/src/chess_agent.py, misc/rag/src/chess_rag.py, misc/rag/src/config.py, misc/rag/src/openai_client.py]
+  issued:
+    by: A2AS.org
+    at: '2026-01-26T16:15:02Z'
+  signatures:
+    digest: sha256:L-NyqznzkHEq9bAGelsAVl0wOdN4szEMxYdEIOlp_Jk
+    key: ed25519:RDQFgDp9S5ayjq4PfA7LXcCBrVPq4OaMr01_00i_e7I
+    sig: ed25519:igBvNW4mDD2o6V3z8KSQ6lPusQOlJHtZlcvrnh21hvwdTprg-T1hDQZ595-CZ60tUJmPDwYX9BCo1FMGxauxDw
+
+agents:
+  _chess_agent_instance:
+    type: instance
+    models: [gpt-4o]
+    tools: [retrieve_chess_knowledge_tool, update_game_state_tool, get_stockfish_analysis_tool]
+    params:
+      class: ChessTrainerAgent
+      name: Chess Trainer
+      model_settings: ModelSettings(verbosity=medium, reasoning=Reasoning(effort=high))
+      instructions: ['You are an expert chess trainer and coach. You help players improve their chess skills by:', 1. Analyzing
+          chess positions and suggesting the best moves, '2. Explaining chess strategies, tactics, and principles', '3. Teaching
+          chess openings, middlegame plans, and endgame techniques', 4. Providing feedback on chess positions and games, 'Current
+          Position: {self.current_fen}', 'Stockfish Analysis: {self.stockfish_input}', Speak naturally and conversationally.
+          Keep responses concise but informative for voice interaction., Always consider the current board position when giving
+          advice.]
+
+models:
+  gpt-4o:
+    type: literal
+    agents: [_chess_agent_instance]
+
+tools:
+  get_stockfish_analysis_tool:
+    type: decorator
+    agents: [_chess_agent_instance]
+    params:
+      description: Get Stockfish analysis of current position
+  retrieve_chess_knowledge_tool:
+    type: decorator
+    agents: [_chess_agent_instance]
+    params:
+      description: Retrieve relevant chess knowledge from the knowledge base.
+  update_game_state_tool:
+    type: decorator
+    agents: [_chess_agent_instance]
+    params:
+      description: Update the current game state
+
+imports:
+  Agent: agents.Agent
+  analyze_recent_games: src.analysis.analyze_recent_games
+  annotations: __future__.annotations
+  Any: typing.Any
+  asyncio: asyncio
+  AsyncIterator: typing.AsyncIterator
+  AudioInput: agents.voice.AudioInput
+  Auth: weaviate.classes.init.Auth
+  AVAILABLE_MODELS: meta.AVAILABLE_MODELS
+  base64: base64
+  ChatMessage: openai_client.ChatMessage
+  chess: chess
+  Config: config.Config
+  dataclass: dataclasses.dataclass
+  datetime: datetime.datetime
+  Dict: typing.Dict
+  Engine: models.engine.Engine
+  field: dataclasses.field
+  function_tool: agents.function_tool
+  Game: src.chess.game.Game
+  get_chess_agent: chess_agent.get_chess_agent
+  get_chesscom_data: src.utils.extract_chesscom.get_chesscom_data
+  get_openai_client: openai_client.get_openai_client
+  get_weaviate_client: chess_rag.get_weaviate_client
+  inspect: inspect
+  json: json
+  List: typing.List
+  load_dotenv: dotenv.load_dotenv
+  math: math
+  ModelSettings: agents.ModelSettings
+  OpenAI: openai.OpenAI
+  OpenAIClient: openai_client.OpenAIClient
+  Optional: typing.Optional
+  os: os
+  Path: pathlib.Path
+  Player: src.chess.player.Player
+  protocol: src.utils.message
+  RagServiceError: src.rag.RagServiceError
+  re: re
+  Reasoning: openai.types.shared.Reasoning
+  retrieve_chess_knowledge: chess_rag.retrieve_chess_knowledge
+  Runner: agents.Runner
+  ServerSocket: src.utils.socket_server.ServerSocket
+  SingleAgentVoiceWorkflow: agents.voice.SingleAgentVoiceWorkflow
+  sys: sys
+  tempfile: tempfile
+  THEORY_ASSISTANT: src.rag.THEORY_ASSISTANT
+  threading: threading
+  time: time
+  traceback: traceback
+  TTSModelSettings: agents.voice.TTSModelSettings
+  VoicePipeline: agents.voice.VoicePipeline
+  VoicePipelineConfig: agents.voice.VoicePipelineConfig
+  weaviate: weaviate
+
+functions:
+  __init__:
+    type: sync
+    module: backend.server
+    args: [self]
+  _arrow_from_uci:
+    type: sync
+    module: backend.src.rag.service
+    args: [uci, fen]
+    params:
+      returns: dict
+  _build_comment_prompt_for_training_game:
+    type: sync
+    module: backend.server
+    args: [self, analysis]
+  _build_commentary_message:
+    type: sync
+    module: backend.server
+    args: [self, analysis]
+  _build_prompt:
+    type: sync
+    module: backend.src.rag.service
+    args: [self, question, fen, context]
+    params:
+      returns: List[Dict]
+  _canon_player_color:
+    type: sync
+    module: backend.server
+    args: [self, player_color, fallback_turn]
+  _classify_move_severity:
+    type: sync
+    module: backend.server
+    args: [self, player_color, player_delta_cp, post_eval]
+  _collect_move_analysis:
+    type: async
+    module: backend.server
+    args: [self, move, player_color, pre_fen, post_fen, move_number]
+  _collect_move_analysis_sync:
+    type: sync
+    module: backend.server
+    args: [self, engine, move, player_color, pre_fen, post_fen, move_number]
+  _comment_for_correct_move:
+    type: sync
+    module: backend.server
+    args: [self, analysis]
+  _convert_rag_results_to_chunks:
+    type: sync
+    module: backend.src.rag.service
+    args: [rag_results]
+    params:
+      returns: List[RetrievedChunk]
+  _convert_top_moves:
+    type: sync
+    module: backend.server
+    args: [self, board, raw_list]
+  _create_rag_tools:
+    type: sync
+    module: backend.src.rag.service
+    args: [self]
+    params:
+      returns: List[Dict]
+  _debug_log:
+    type: sync
+    module: backend.server
+    args: [self, payload]
+  _ensure_analysis_engine:
+    type: sync
+    module: backend.server
+    args: [self]
+  _ensure_env_loaded:
+    type: sync
+    module: backend.src.rag.service
+    args: [self]
+    params:
+      returns: None
+  _ensure_openai:
+    type: sync
+    module: backend.src.rag.service
+    args: [self]
+    params:
+      returns: OpenAI
+  _ensure_openai_client:
+    type: sync
+    module: backend.server
+    args: [self]
+  _ensure_tts_client:
+    type: sync
+    module: backend.server
+    args: [self]
+  _execute_function_call:
+    type: sync
+    module: backend.src.rag.service
+    args: [self, function_call]
+    params:
+      returns: Dict
+  _extract_recommended_move:
+    type: sync
+    module: backend.src.rag.service
+    args: [self, text, fen]
+    params:
+      returns: Optional[Dict]
+  _fallback_comment:
+    type: sync
+    module: backend.server
+    args: [self, analysis]
+  _find_san_move:
+    type: sync
+    module: backend.src.rag.service
+    args: [text, board]
+    params:
+      returns: Optional[chess.Move]
+  _find_uci_move:
+    type: sync
+    module: backend.src.rag.service
+    args: [text, board]
+    params:
+      returns: Optional[str]
+  _format_cp:
+    type: sync
+    module: backend.server
+    args: [self, cp_value]
+  _generate_comment_audio:
+    type: async
+    module: backend.server
+    args: [self, text]
+  _generate_comment_text:
+    type: async
+    module: backend.server
+    args: [self, analysis]
+  _is_engine_color:
+    type: sync
+    module: backend.server
+    args: [self, color]
+  _is_valid_fen:
+    type: sync
+    module: backend.src.rag.service
+    args: [fen]
+    params:
+      returns: bool
+  _move_dict:
+    type: sync
+    module: backend.src.rag.service
+    args: [move_obj, board]
+    params:
+      returns: dict
+  _normalize_evaluation:
+    type: sync
+    module: backend.server
+    args: [self, board, raw_eval]
+  _parse_instruction_block:
+    type: sync
+    module: backend.src.rag.service
+    args: [instr]
+    params:
+      returns: dict
+  _process_response:
+    type: sync
+    module: backend.src.rag.service
+    args: [self, raw_response, fen, request_id, context]
+    params:
+      returns: Dict
+  _provide_live_commentary:
+    type: async
+    module: backend.server
+    args: [self, move, player_color, pre_fen, post_fen, move_number]
+  _reset_player_eval_history:
+    type: sync
+    module: backend.server
+    args: [self]
+  _retrieve_context:
+    type: sync
+    module: backend.src.rag.service
+    args: [self, query, limit]
+    params:
+      returns: List[RetrievedChunk]
+  _score_from_top_entry:
+    type: sync
+    module: backend.server
+    args: [self, board, entry]
+  _setup_voice_agent:
+    type: sync
+    module: misc.rag.src.chess_agent
+    args: [self]
+  _show_help:
+    type: sync
+    module: misc.rag.src.main
+    args: [self]
+  _show_summary:
+    type: sync
+    module: misc.rag.src.main
+    args: [self]
+  _split_text_and_instructions:
+    type: sync
+    module: backend.src.rag.service
+    args: [text]
+    params:
+      returns: tuple
+  _summarize_eval:
+    type: sync
+    module: backend.server
+    args: [self, evaluation]
+  _summarize_move_score:
+    type: sync
+    module: backend.server
+    args: [self, move_info]
+  _synthesize_commentary_sync:
+    type: sync
+    module: backend.server
+    args: [self, text]
+  _transcribe_audio:
+    type: async
+    module: backend.server
+    args: [self, audio_data]
+  _update_chess_agent_analysis:
+    type: sync
+    module: backend.server
+    args: [self, analysis_str]
+  _update_chess_agent_fen:
+    type: sync
+    module: backend.server
+    args: [self, fen]
+  analyse_game:
+    type: async
+    module: backend.server
+    args: [self, client, info]
+  answer:
+    type: sync
+    module: backend.src.rag.service
+    args: [self, question, fen]
+    params:
+      returns: Dict
+  chat:
+    type: sync
+    module: misc.rag.src.chess_agent
+    args: [self, message]
+    params:
+      returns: str
+  chat_completion:
+    type: sync
+    module: misc.rag.src.openai_client
+    args: [self, messages, tools]
+  chat_voice:
+    type: async
+    module: misc.rag.src.chess_agent
+    args: [self, audio_input]
+    params:
+      returns: AsyncIterator[Dict]
+  close:
+    type: sync
+    module: misc.rag.src.chess_agent
+    args: [self]
+  close_connection:
+    type: sync
+    module: misc.rag.src.chess_rag
+  connect_user:
+    type: sync
+    module: backend.server
+    args: [self, info]
+  create_chat_tools:
+    type: sync
+    module: misc.rag.src.openai_client
+    args: [self, functions]
+    params:
+      returns: List[Dict]
+  ensure_connection:
+    type: sync
+    module: misc.rag.src.chess_rag
+  execute_function_call:
+    type: sync
+    module: misc.rag.src.openai_client
+    args: [self, function_call, available_functions]
+  get_chess_agent:
+    type: sync
+    module: misc.rag.src.chess_agent
+    params:
+      returns: ChessTrainerAgent
+  get_chess_collection:
+    type: sync
+    module: backend.src.rag.service
+  get_chesscom_profil:
+    type: sync
+    module: backend.server
+    args: [self, info, _preloaded]
+  get_comment_game_analysis:
+    type: async
+    module: backend.server
+    args: [self, fen, move, dx, last_white_winrate, current_white_winrate, is_user_white, move_player_color, best_move]
+  get_conversation_summary:
+    type: sync
+    module: misc.rag.src.chess_agent
+    args: [self]
+    params:
+      returns: Dict
+  get_openai_client:
+    type: sync
+    module: misc.rag.src.openai_client
+    params:
+      returns: OpenAIClient
+  get_possible_moves:
+    type: sync
+    module: backend.server
+    args: [self, info]
+  get_stockfish_analysis:
+    type: sync
+    module: misc.rag.src.chess_agent
+    args: [self]
+    params:
+      returns: str
+  get_stockfish_analysis_tool:
+    type: tool
+    module: misc.rag.src.chess_agent
+    params:
+      returns: str
+  get_weaviate_client:
+    type: sync
+    module: backend.src.rag.service
+  handle_analysis_chat:
+    type: async
+    module: backend.server
+    args: [self, client, info]
+  handle_analysis_chat_audio:
+    type: async
+    module: backend.server
+    args: [self, client, info]
+  handle_theory_question:
+    type: async
+    module: backend.server
+    args: [self, client, info]
+  handle_theory_question_audio:
+    type: async
+    module: backend.server
+    args: [self, client, info]
+  ia_move_handler:
+    type: sync
+    module: backend.server
+    args: [self, move]
+  main:
+    type: sync
+    module: misc.rag.src.main
+  move_piece:
+    type: sync
+    module: backend.server
+    args: [self, info]
+  open_file:
+    type: sync
+    module: backend.server
+    args: [self, name, mode]
+  play:
+    type: async
+    module: backend.server
+  reset_conversation:
+    type: sync
+    module: misc.rag.src.chess_agent
+    args: [self]
+  retrieve_chess_knowledge:
+    type: sync
+    module: backend.src.rag.service
+    args: [query, limit]
+    params:
+      returns: List[Dict]
+  retrieve_chess_knowledge_tool:
+    type: tool
+    module: misc.rag.src.chess_agent
+    args: [query, limit]
+    params:
+      returns: dict
+  run:
+    type: async
+    module: backend.server
+    args: [self]
+  set_up_event_listeners:
+    type: sync
+    module: backend.server
+    args: [self]
+  start_game:
+    type: async
+    module: backend.server
+    args: [self, info]
+  start_text_session:
+    type: sync
+    module: misc.rag.src.main
+    args: [self]
+  update_fen_position:
+    type: sync
+    module: misc.rag.src.chess_agent
+    args: [self, fen]
+  update_game_state:
+    type: sync
+    module: misc.rag.src.chess_agent
+    args: [self, fen]
+    params:
+      returns: str
+  update_game_state_tool:
+    type: tool
+    module: misc.rag.src.chess_agent
+    args: [fen]
+    params:
+      returns: str
+  update_stockfish_input:
+    type: sync
+    module: misc.rag.src.chess_agent
+    args: [self, stockfish_analysis]
+
+variables:
+  CHESS_TRAINER_DEBUG:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [backend.server]
+  COMMENTARY_TTS_MODEL:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [backend.server]
+  COMMENTARY_TTS_VOICE:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [backend.server]
+  OPENAI_API_KEY:
+    type: env
+    params:
+      caller: [os.getenv, os.environ.get]
+      path: [misc.rag.src.config, misc.rag.src.chess_rag, backend.src.rag.service, backend.server]
+  THEORY_ASSISTANT_MODEL:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [backend.src.rag.service]
+  THEORY_USE_RAG:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [backend.src.rag.service]
+  TTS_MODEL:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [backend.server]
+  TTS_VOICE:
+    type: env
+    params:
+      caller: [os.getenv]
+      path: [backend.server]
+  WEAVIATE_API_KEY:
+    type: env
+    params:
+      caller: [os.getenv, os.environ.get]
+      path: [misc.rag.src.config, misc.rag.src.chess_rag, backend.src.rag.service]
+  WEAVIATE_REST_ENDPOINT:
+    type: env
+    params:
+      caller: [os.getenv, os.environ.get]
+      path: [misc.rag.src.config, misc.rag.src.chess_rag, backend.src.rag.service]
+
+files:
+  .env:
+    type: literal
+    actions: [read]
+    params:
+      caller: [_ensure_env_loaded]
+      path: [project_root]
+  .webm:
+    type: literal
+    actions: [write]
+    params:
+      caller: [tempfile.NamedTemporaryFile]
+      delete: "False"
+  path:
+    type: variable
+    actions: [read]
+    params:
+      caller: [open]
+  temp_file_path:
+    type: variable
+    actions: [read]
+    params:
+      caller: [open, os.unlink]
+      alias: [audio_file]
